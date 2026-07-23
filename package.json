@@ -1,0 +1,19 @@
+{
+  "name": "tesla-canvas-streamer",
+  "version": "1.0.0",
+  "description": "Low-overhead WebSocket canvas streamer for embedded browsers",
+  "main": "server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "ffmpeg-static": "^5.2.0",
+    "fluent-ffmpeg": "^2.1.3",
+    "jsmpeg-player": "^3.0.3",
+    "ws": "^8.18.0",
+    "youtube-sr": "^4.3.12",
+    "yt-dlp-exec": "^1.0.2"
+  }
+}
