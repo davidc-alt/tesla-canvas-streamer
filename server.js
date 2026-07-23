@@ -29,6 +29,10 @@ const app = express();
 const server = http.createServer(app);
 
 app.use(express.json());
+app.use((req, res, next) => {
+  res.setHeader('bypass-tunnel-reminder', 'true');
+  next();
+});
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Resolution profiles for H264 hardware-accelerated streaming
