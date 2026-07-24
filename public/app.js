@@ -240,12 +240,10 @@ function startCanvasPlayback(videoUrl) {
   const profile = playerProfileSelect.value;
   updateStatus(`Streaming Canvas: ${videoTitleDisplay.textContent} (${profile})`);
 
-  // Build WebSocket URL
-  const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const wsUrl = `${wsProtocol}//${window.location.host}/?url=${encodeURIComponent(videoUrl)}&profile=${profile}`;
+  const streamUrl = `/api/stream?url=${encodeURIComponent(videoUrl)}&profile=${profile}`;
 
   try {
-    jsmpegPlayer = new JSMpeg.Player(wsUrl, {
+    jsmpegPlayer = new JSMpeg.Player(streamUrl, {
       canvas: canvasPlayer,
       autoplay: true,
       audio: true,

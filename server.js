@@ -3,7 +3,6 @@ const http = require('http');
 const path = require('path');
 const fs = require('fs');
 const { execSync } = require('child_process');
-const WebSocket = require('ws');
 const ffmpeg = require('fluent-ffmpeg');
 const ffmpegPath = require('ffmpeg-static');
 const YouTube = require('youtube-sr').default;
@@ -28,7 +27,6 @@ console.log('Using yt-dlp executable path:', ytdlpBinPath || 'bundled yt-dlp-exe
 
 const app = express();
 const server = http.createServer(app);
-const wss = new WebSocket.Server({ server });
 
 app.use(express.json());
 app.use((req, res, next) => {
@@ -38,12 +36,12 @@ app.use((req, res, next) => {
 });
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Resolution profiles for MPEG1 Canvas Streaming (Strict 1x real-time speed)
+// Resolution profiles for MPEG1 Canvas Streaming (Ultra Smooth 1x Speed)
 const PROFILES = {
-  '144p': { size: '256x144', bitrate: '150k', fps: 25, audioBitrate: '64k', bps: 27000 },
-  '240p': { size: '426x240', bitrate: '300k', fps: 25, audioBitrate: '96k', bps: 50000 },
-  '360p': { size: '640x360', bitrate: '500k', fps: 25, audioBitrate: '128k', bps: 80000 },
-  '480p': { size: '854x480', bitrate: '900k', fps: 30, audioBitrate: '128k', bps: 130000 }
+  '144p': { size: '256x144', bitrate: '150k', fps: 25, audioBitrate: '64k' },
+  '240p': { size: '426x240', bitrate: '300k', fps: 25, audioBitrate: '96k' },
+  '360p': { size: '640x360', bitrate: '500k', fps: 25, audioBitrate: '128k' },
+  '480p': { size: '854x480', bitrate: '900k', fps: 30, audioBitrate: '128k' }
 };
 
 // Resilient Stream Extractor (tries tv_embedded, mweb, android_vr, web_embedded)
@@ -67,30 +65,6 @@ async function getRawStreamUrl(videoUrl) {
         return url.trim();
       }
     } catch (e) {}
-  }
-
-  // Fallback to Piped API if yt-dlp is blocked on cloud IP
-  const videoIdMatch = videoUrl.match(/(?:v=|\/)([\w-]{11})/);
-  if (videoIdMatch) {
-    const videoId = videoIdMatch[1];
-    const pipedInstances = [
-      'https://pipedapi.mha.fi/streams/',
-      'https://api.piped.video/streams/',
-      'https://pipedapi.lunar.icu/streams/'
-    ];
-
-    for (const base of pipedInstances) {
-      try {
-        const res = await fetch(`${base}${videoId}`);
-        if (res.ok) {
-          const data = await res.json();
-          if (data.videoStreams && data.videoStreams.length > 0) {
-            const bestStream = data.videoStreams.find(s => s.quality === '360p') || data.videoStreams[0];
-            if (bestStream && bestStream.url) return bestStream.url;
-          }
-        }
-      } catch (e) {}
-    }
   }
 
   throw new Error('Unable to resolve YouTube stream URL');
@@ -131,7 +105,7 @@ app.post('/api/resolve', async (req, res) => {
       dumpSingleJson: true,
       noWarnings: true,
       forceIpv4: true,
-      extractorArgs: 'youtube:player_client=android_vr,android'
+      extractorArgs: 'youtube:player_client=tv_embedded,android_vr'
     });
 
     res.json({
@@ -145,34 +119,25 @@ app.post('/api/resolve', async (req, res) => {
   }
 });
 
-// WebSocket Canvas Transcoder with Strict 1x Real-Time Rate Locking
-wss.on('connection', async (ws, req) => {
-  const urlParams = new URLSearchParams(req.url.replace('/?', ''));
-  const videoUrl = urlParams.get('url');
-  const profileKey = urlParams.get('profile') || '360p';
+// HTTP Chunked MPEG-TS Stream Route for 100% Reliable Cloud & Tesla Canvas Playback
+app.get('/api/stream', async (req, res) => {
+  const videoUrl = req.query.url;
+  const profileKey = req.query.profile || '360p';
   const profile = PROFILES[profileKey] || PROFILES['360p'];
 
-  if (!videoUrl) {
-    ws.close(1008, 'Missing video URL');
-    return;
-  }
+  if (!videoUrl) return res.status(400).send('Missing video URL');
 
-  console.log(`[WebSocket] Client connected for Tesla Canvas Stream (1x Speed Lock): ${videoUrl} (${profileKey})`);
+  console.log(`[HTTP Stream] Client connected for Tesla Canvas Stream: ${videoUrl} (${profileKey})`);
 
-  let ffmpegProc = null;
-  let sendQueue = [];
-  let isSending = false;
-  let bytesSent = 0;
-  const startTime = Date.now();
+  res.setHeader('Content-Type', 'video/mp2t');
+  res.setHeader('Transfer-Encoding', 'chunked');
+  res.setHeader('Cache-Control', 'no-cache');
 
   try {
-    // Multi-source stream URL resolution
     const rawStreamUrl = await getRawStreamUrl(videoUrl);
-
     const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
-    // Transcode into MPEG1 Video + MP2 Audio TS stream
-    ffmpegProc = ffmpeg(rawStreamUrl)
+    const ffmpegProc = ffmpeg(rawStreamUrl)
       .inputOptions([
         '-user_agent', USER_AGENT
       ])
@@ -198,50 +163,17 @@ wss.on('connection', async (ws, req) => {
       });
 
     const stream = ffmpegProc.pipe();
+    stream.pipe(res);
 
-    // Strict 1x Speed Real-Time Pacing Controller
-    const processQueue = () => {
-      if (ws.readyState !== WebSocket.OPEN) return;
-
-      const elapsedSec = (Date.now() - startTime) / 1000;
-      const maxAllowedBytes = elapsedSec * profile.bps;
-
-      while (sendQueue.length > 0 && bytesSent < maxAllowedBytes + (profile.bps * 2)) {
-        const chunk = sendQueue.shift();
-        ws.send(chunk);
-        bytesSent += chunk.length;
-      }
-
-      if (sendQueue.length > 0) {
-        setTimeout(processQueue, 40);
-      } else {
-        isSending = false;
-      }
-    };
-
-    stream.on('data', (chunk) => {
-      sendQueue.push(chunk);
-      if (!isSending) {
-        isSending = true;
-        processQueue();
-      }
-    });
-
-    ws.on('close', () => {
-      console.log('[WebSocket] Client disconnected');
-      if (ffmpegProc) ffmpegProc.kill('SIGKILL');
-      sendQueue = [];
-    });
-
-    ws.on('error', () => {
-      if (ffmpegProc) ffmpegProc.kill('SIGKILL');
-      sendQueue = [];
+    req.on('close', () => {
+      console.log('[HTTP Stream] Client disconnected');
+      ffmpegProc.kill('SIGKILL');
     });
 
   } catch (err) {
-    console.error('[Canvas Stream Error]', err.message || err);
-    if (ws.readyState === WebSocket.OPEN) {
-      ws.close(1011, 'Stream initialization failed');
+    console.error('[HTTP Stream Error]', err.message || err);
+    if (!res.headersSent) {
+      res.status(500).send('Stream initialization failed');
     }
   }
 });
