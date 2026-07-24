@@ -1,6 +1,8 @@
 let currentVideoUrl = '';
 let currentVideoResults = [];
-let jsmpegPlayer = null;
+let currentVideoId = '';
+let animationFrameId = null;
+let videoEl = null;
 
 const urlInput = document.getElementById('url-input');
 const searchBtn = document.getElementById('search-btn');
@@ -61,8 +63,9 @@ function hideLoading() {
   loadingOverlay.classList.add('hidden');
 }
 
-function isYouTubeUrl(input) {
-  return /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+$/i.test(input.trim());
+function extractVideoId(input) {
+  const match = input.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([\w-]{11})/);
+  return match ? match[1] : (input.length === 11 ? input : null);
 }
 
 function showHomeView() {
@@ -79,8 +82,9 @@ async function handleSearchOrPlay() {
     return;
   }
 
-  if (isYouTubeUrl(query)) {
-    openWatchView(query);
+  const videoId = extractVideoId(query);
+  if (videoId) {
+    openWatchView(`https://www.youtube.com/watch?v=${videoId}`, { id: videoId, title: 'YouTube Video', channel: 'YouTube' });
   } else {
     performSearch(query);
   }
@@ -187,7 +191,8 @@ function escapeHtml(str) {
 
 async function openWatchView(videoUrl, videoMeta = null) {
   currentVideoUrl = videoUrl;
-  stopPlayback();
+  const videoId = videoMeta?.id || extractVideoId(videoUrl);
+  currentVideoId = videoId;
 
   // Hide home view grid completely
   homeView.classList.add('hidden');
@@ -204,7 +209,7 @@ async function openWatchView(videoUrl, videoMeta = null) {
   }
 
   renderRelatedGrid(videoUrl);
-  startCanvasPlayback(videoUrl);
+  startCanvasPlayback(videoId);
 
   // Auto Fullscreen Trigger
   setTimeout(() => {
@@ -233,46 +238,70 @@ async function openWatchView(videoUrl, videoMeta = null) {
   } catch (e) {}
 }
 
-function startCanvasPlayback(videoUrl) {
+function startCanvasPlayback(videoId) {
   stopPlayback();
   showLoading('Connecting Canvas Stream...');
 
-  const profile = playerProfileSelect.value;
-  updateStatus(`Streaming Canvas: ${videoTitleDisplay.textContent} (${profile})`);
+  const ctx = canvasPlayer.getContext('2d');
 
-  const streamUrl = `/api/stream?url=${encodeURIComponent(videoUrl)}&profile=${profile}`;
-
-  try {
-    jsmpegPlayer = new JSMpeg.Player(streamUrl, {
-      canvas: canvasPlayer,
-      autoplay: true,
-      audio: true,
-      loop: false,
-      videoBufferSize: 512 * 1024,
-      audioBufferSize: 128 * 1024,
-      onVideoDecode: () => {
-        hideLoading();
-        playPauseBtn.textContent = '⏸';
-      }
-    });
-
-    if (jsmpegPlayer) {
-      jsmpegPlayer.volume = parseFloat(volumeSlider.value);
-    }
-
-  } catch (err) {
-    console.error('JSMpeg Error:', err);
-    updateStatus(`Canvas Stream error: ${err.message}`);
-    hideLoading();
+  if (!videoEl) {
+    videoEl = document.createElement('video');
+    videoEl.crossOrigin = 'anonymous';
+    videoEl.playsInline = true;
+    videoEl.autoplay = true;
+    videoEl.style.display = 'none';
+    document.body.appendChild(videoEl);
   }
+
+  videoEl.volume = parseFloat(volumeSlider.value);
+
+  function renderFrame() {
+    if (videoEl && !videoEl.paused && !videoEl.ended) {
+      if (videoEl.videoWidth && videoEl.videoHeight) {
+        if (canvasPlayer.width !== videoEl.videoWidth || canvasPlayer.height !== videoEl.videoHeight) {
+          canvasPlayer.width = videoEl.videoWidth;
+          canvasPlayer.height = videoEl.videoHeight;
+        }
+        ctx.drawImage(videoEl, 0, 0, canvasPlayer.width, canvasPlayer.height);
+      }
+    }
+    animationFrameId = requestAnimationFrame(renderFrame);
+  }
+
+  fetch(`/api/resolve-stream?id=${videoId}`)
+    .then(res => res.json())
+    .then(data => {
+      if (data.streamUrl) {
+        videoEl.src = data.streamUrl;
+        videoEl.play().then(() => {
+          hideLoading();
+          playPauseBtn.textContent = '⏸';
+          renderFrame();
+        }).catch(err => {
+          console.error('Video play error:', err);
+          hideLoading();
+        });
+      } else {
+        hideLoading();
+      }
+    })
+    .catch(err => {
+      console.error('Stream resolution error:', err);
+      hideLoading();
+    });
 }
 
 function stopPlayback() {
-  if (jsmpegPlayer) {
+  if (animationFrameId) {
+    cancelAnimationFrame(animationFrameId);
+    animationFrameId = null;
+  }
+
+  if (videoEl) {
     try {
-      jsmpegPlayer.destroy();
+      videoEl.pause();
+      videoEl.src = '';
     } catch (e) {}
-    jsmpegPlayer = null;
   }
 
   playPauseBtn.textContent = '▶';
@@ -282,18 +311,19 @@ function stopPlayback() {
 
 // Media Controls
 playPauseBtn.addEventListener('click', () => {
-  if (!jsmpegPlayer) {
-    if (currentVideoUrl) {
-      startCanvasPlayback(currentVideoUrl);
+  if (!videoEl || !videoEl.src) {
+    if (currentVideoId) {
+      startCanvasPlayback(currentVideoId);
     }
     return;
   }
-  if (jsmpegPlayer.isPlaying) {
-    jsmpegPlayer.pause();
-    playPauseBtn.textContent = '▶';
-  } else {
-    jsmpegPlayer.play();
+
+  if (videoEl.paused) {
+    videoEl.play();
     playPauseBtn.textContent = '⏸';
+  } else {
+    videoEl.pause();
+    playPauseBtn.textContent = '▶';
   }
 });
 
@@ -303,8 +333,8 @@ canvasPlayer.addEventListener('click', () => {
 
 volumeSlider.addEventListener('input', (e) => {
   const val = parseFloat(e.target.value);
-  if (jsmpegPlayer) {
-    jsmpegPlayer.volume = val;
+  if (videoEl) {
+    videoEl.volume = val;
   }
   volumeBtn.textContent = val === 0 ? '🔇' : '🔊';
 });
@@ -320,8 +350,8 @@ volumeBtn.addEventListener('click', () => {
 });
 
 playerProfileSelect.addEventListener('change', () => {
-  if (currentVideoUrl) {
-    startCanvasPlayback(currentVideoUrl);
+  if (currentVideoId) {
+    startCanvasPlayback(currentVideoId);
   }
 });
 

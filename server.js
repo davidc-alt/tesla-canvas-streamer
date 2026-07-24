@@ -3,11 +3,7 @@ const http = require('http');
 const path = require('path');
 const fs = require('fs');
 const { execSync } = require('child_process');
-const ffmpeg = require('fluent-ffmpeg');
-const ffmpegPath = require('ffmpeg-static');
 const YouTube = require('youtube-sr').default;
-
-ffmpeg.setFfmpegPath(ffmpegPath);
 
 // Locate system or local yt-dlp binary if available
 let ytdlpBinPath = null;
@@ -39,74 +35,6 @@ app.use((req, res, next) => {
 });
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Resolution profiles for MPEG1 Canvas Streaming (Ultra Smooth 1x Speed)
-const PROFILES = {
-  '144p': { size: '256x144', bitrate: '150k', fps: 25, audioBitrate: '64k' },
-  '240p': { size: '426x240', bitrate: '300k', fps: 25, audioBitrate: '96k' },
-  '360p': { size: '640x360', bitrate: '500k', fps: 25, audioBitrate: '128k' },
-  '480p': { size: '854x480', bitrate: '900k', fps: 30, audioBitrate: '128k' }
-};
-
-// Resilient Cloud Stream Extractor (yt-dlp + Piped & Invidious Fallbacks)
-async function getRawStreamUrl(videoUrl) {
-  const videoIdMatch = videoUrl.match(/(?:v=|\/|embed\/|shorts\/)([\w-]{11})/);
-  const videoId = videoIdMatch ? videoIdMatch[1] : null;
-
-  // 1. Try local yt-dlp first
-  if (ytdlpBinPath) {
-    const playerClients = [
-      'youtube:player_client=tv_embedded,android_vr',
-      'youtube:player_client=mweb,web_embedded',
-      'youtube:player_client=android,ios'
-    ];
-
-    for (const clientArgs of playerClients) {
-      try {
-        const url = await ytdlp(videoUrl, {
-          getUrl: true,
-          format: '18/b',
-          forceIpv4: true,
-          extractorArgs: clientArgs,
-          noWarnings: true
-        });
-        if (url && url.trim().startsWith('http')) {
-          return url.trim();
-        }
-      } catch (e) {}
-    }
-  }
-
-  // 2. Pure Cloud API Stream Resolvers (Piped & Invidious)
-  if (videoId) {
-    const cloudEndpoints = [
-      `https://pipedapi.mha.fi/streams/${videoId}`,
-      `https://api.piped.video/streams/${videoId}`,
-      `https://pipedapi.lunar.icu/streams/${videoId}`,
-      `https://inv.tux.pizza/api/v1/videos/${videoId}`,
-      `https://invidious.nerdvpn.de/api/v1/videos/${videoId}`
-    ];
-
-    for (const ep of cloudEndpoints) {
-      try {
-        const res = await fetch(ep, { headers: { 'User-Agent': 'Mozilla/5.0' } });
-        if (res.ok) {
-          const data = await res.json();
-          if (data.videoStreams && data.videoStreams.length > 0) {
-            const stream = data.videoStreams.find(s => s.quality === '360p' || s.quality === '360') || data.videoStreams[0];
-            if (stream && stream.url) return stream.url;
-          }
-          if (data.formatStreams && data.formatStreams.length > 0) {
-            const stream = data.formatStreams.find(s => s.quality === '360p' || s.resolution === '360p') || data.formatStreams[0];
-            if (stream && stream.url) return stream.url;
-          }
-        }
-      } catch (e) {}
-    }
-  }
-
-  throw new Error('Unable to resolve YouTube stream URL');
-}
-
 // Fast YouTube search route
 app.post('/api/search', async (req, res) => {
   const { query } = req.body;
@@ -132,6 +60,66 @@ app.post('/api/search', async (req, res) => {
   }
 });
 
+// Resilient Stream URL Resolver for Client-Side Canvas Renderer
+app.get('/api/resolve-stream', async (req, res) => {
+  const videoId = req.query.id;
+  if (!videoId) return res.status(400).json({ error: 'Missing video ID' });
+
+  const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
+
+  // 1. Try local yt-dlp with tv_embedded / android_vr clients
+  if (ytdlpBinPath) {
+    const playerClients = [
+      'youtube:player_client=tv_embedded,android_vr',
+      'youtube:player_client=mweb,web_embedded'
+    ];
+
+    for (const clientArgs of playerClients) {
+      try {
+        const url = await ytdlp(videoUrl, {
+          getUrl: true,
+          format: '18/b',
+          forceIpv4: true,
+          extractorArgs: clientArgs,
+          noWarnings: true
+        });
+        if (url && url.trim().startsWith('http')) {
+          return res.json({ streamUrl: url.trim() });
+        }
+      } catch (e) {}
+    }
+  }
+
+  // 2. Pure Cloud API Stream Resolvers (Piped & Invidious)
+  const cloudEndpoints = [
+    `https://pipedapi.mha.fi/streams/${videoId}`,
+    `https://api.piped.video/streams/${videoId}`,
+    `https://pipedapi.lunar.icu/streams/${videoId}`,
+    `https://inv.tux.pizza/api/v1/videos/${videoId}`,
+    `https://invidious.nerdvpn.de/api/v1/videos/${videoId}`
+  ];
+
+  for (const ep of cloudEndpoints) {
+    try {
+      const apiRes = await fetch(ep, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+      if (apiRes.ok) {
+        const data = await apiRes.json();
+        if (data.videoStreams && data.videoStreams.length > 0) {
+          const stream = data.videoStreams.find(s => s.quality === '360p' || s.quality === '360') || data.videoStreams[0];
+          if (stream && stream.url) return res.json({ streamUrl: stream.url });
+        }
+        if (data.formatStreams && data.formatStreams.length > 0) {
+          const stream = data.formatStreams.find(s => s.quality === '360p' || s.resolution === '360p') || data.formatStreams[0];
+          if (stream && stream.url) return res.json({ streamUrl: stream.url });
+        }
+      }
+    } catch (e) {}
+  }
+
+  // Fallback to proxy embed
+  res.json({ streamUrl: `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1` });
+});
+
 // Fast video resolution metadata route
 app.post('/api/resolve', async (req, res) => {
   const { url } = req.body;
@@ -153,65 +141,6 @@ app.post('/api/resolve', async (req, res) => {
     });
   } catch (err) {
     res.json({ title: 'YouTube Video', uploader: 'YouTube Channel', description: 'Playing video stream...' });
-  }
-});
-
-// HTTP Chunked MPEG-TS Stream Route for 100% Reliable Cloud & Tesla Canvas Playback
-app.get('/api/stream', async (req, res) => {
-  const videoUrl = req.query.url;
-  const profileKey = req.query.profile || '360p';
-  const profile = PROFILES[profileKey] || PROFILES['360p'];
-
-  if (!videoUrl) return res.status(400).send('Missing video URL');
-
-  console.log(`[HTTP Stream] Client connected for Tesla Canvas Stream: ${videoUrl} (${profileKey})`);
-
-  res.setHeader('Content-Type', 'video/mp2t');
-  res.setHeader('Transfer-Encoding', 'chunked');
-  res.setHeader('Cache-Control', 'no-cache');
-
-  try {
-    const rawStreamUrl = await getRawStreamUrl(videoUrl);
-    const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
-
-    const ffmpegProc = ffmpeg(rawStreamUrl)
-      .inputOptions([
-        '-user_agent', USER_AGENT
-      ])
-      .format('mpegts')
-      .videoCodec('mpeg1video')
-      .size(profile.size)
-      .audioCodec('mp2')
-      .audioBitrate(profile.audioBitrate)
-      .audioChannels(2)
-      .outputOptions([
-        `-b:v ${profile.bitrate}`,
-        `-maxrate ${profile.bitrate}`,
-        `-bufsize ${profile.bitrate}`,
-        `-r ${profile.fps}`,
-        '-g 15',
-        '-bf 0',
-        '-q:v 4'
-      ])
-      .on('error', (err) => {
-        if (err.message && !err.message.includes('SIGKILL')) {
-          console.error('[FFmpeg Error]', err.message);
-        }
-      });
-
-    const stream = ffmpegProc.pipe();
-    stream.pipe(res);
-
-    req.on('close', () => {
-      console.log('[HTTP Stream] Client disconnected');
-      ffmpegProc.kill('SIGKILL');
-    });
-
-  } catch (err) {
-    console.error('[HTTP Stream Error]', err.message || err);
-    if (!res.headersSent) {
-      res.status(500).send('Stream initialization failed');
-    }
   }
 });
 
