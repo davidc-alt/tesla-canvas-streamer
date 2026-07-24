@@ -5,6 +5,7 @@
   "main": "server.js",
   "type": "commonjs",
   "scripts": {
+    "postinstall": "curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o ./yt-dlp && chmod a+rx ./yt-dlp || true",
     "start": "node server.js",
     "tunnel": "npx localtunnel --port 3000 --subdomain david-tesla-streamer"
   },

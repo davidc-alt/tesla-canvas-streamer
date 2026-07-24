@@ -9,9 +9,12 @@ const YouTube = require('youtube-sr').default;
 
 ffmpeg.setFfmpegPath(ffmpegPath);
 
-// Locate system or homebrew yt-dlp binary if available
+// Locate system or local yt-dlp binary if available
 let ytdlpBinPath = null;
-if (fs.existsSync('/opt/homebrew/bin/yt-dlp')) {
+const localYtDlp = path.join(__dirname, 'yt-dlp');
+if (fs.existsSync(localYtDlp)) {
+  ytdlpBinPath = localYtDlp;
+} else if (fs.existsSync('/opt/homebrew/bin/yt-dlp')) {
   ytdlpBinPath = '/opt/homebrew/bin/yt-dlp';
 } else {
   try {
