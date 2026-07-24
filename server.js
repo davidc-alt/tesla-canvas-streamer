@@ -46,12 +46,12 @@ const PROFILES = {
   '480p': { size: '854x480', bitrate: '900k', fps: 30, audioBitrate: '128k', bps: 130000 }
 };
 
-// Resilient Stream Extractor (tries android_vr, tvhtml5, web, and Piped API fallbacks)
+// Resilient Stream Extractor (tries tv_embedded, mweb, android_vr, web_embedded)
 async function getRawStreamUrl(videoUrl) {
   const playerClients = [
-    'youtube:player_client=android_vr,android',
-    'youtube:player_client=tvhtml5,web',
-    'youtube:player_client=ios,web'
+    'youtube:player_client=tv_embedded,android_vr',
+    'youtube:player_client=mweb,web_embedded',
+    'youtube:player_client=android,ios'
   ];
 
   for (const clientArgs of playerClients) {
