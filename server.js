@@ -31,6 +31,7 @@ const server = http.createServer(app);
 app.use(express.json());
 app.use((req, res, next) => {
   res.setHeader('bypass-tunnel-reminder', 'true');
+  res.setHeader('ngrok-skip-browser-warning', 'true');
   next();
 });
 app.use(express.static(path.join(__dirname, 'public')));

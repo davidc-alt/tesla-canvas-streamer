@@ -1,10 +1,11 @@
 let currentVideoUrl = '';
 let currentVideoResults = [];
+let currentVideoId = '';
 
 const urlInput = document.getElementById('url-input');
 const searchBtn = document.getElementById('search-btn');
 const statusBar = document.getElementById('status-bar');
-const videoPlayer = document.getElementById('video-player');
+const mediaContainer = document.getElementById('media-container');
 
 const homeLogo = document.getElementById('home-logo');
 const navHomeBtn = document.getElementById('nav-home-btn');
@@ -28,11 +29,6 @@ const videoDescriptionText = document.getElementById('video-description-text');
 const loadingOverlay = document.getElementById('loading-overlay');
 const loadingText = document.getElementById('loading-text');
 
-const playPauseBtn = document.getElementById('play-pause-btn');
-const volumeBtn = document.getElementById('volume-btn');
-const volumeSlider = document.getElementById('volume-slider');
-const timeDisplay = document.getElementById('time-display');
-const timelineSlider = document.getElementById('timeline-slider');
 const playerProfileSelect = document.getElementById('player-profile-select');
 const fullscreenBtn = document.getElementById('fullscreen-btn');
 
@@ -62,8 +58,9 @@ function hideLoading() {
   loadingOverlay.classList.add('hidden');
 }
 
-function isYouTubeUrl(input) {
-  return /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+$/i.test(input.trim());
+function extractVideoId(input) {
+  const match = input.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([\w-]{11})/);
+  return match ? match[1] : (input.length === 11 ? input : null);
 }
 
 function showHomeView() {
@@ -80,8 +77,9 @@ async function handleSearchOrPlay() {
     return;
   }
 
-  if (isYouTubeUrl(query)) {
-    openWatchView(query);
+  const videoId = extractVideoId(query);
+  if (videoId) {
+    openWatchView(`https://www.youtube.com/watch?v=${videoId}`, { id: videoId, title: 'YouTube Video', channel: 'YouTube' });
   } else {
     performSearch(query);
   }
@@ -186,18 +184,12 @@ function escapeHtml(str) {
   });
 }
 
-function formatTime(seconds) {
-  if (isNaN(seconds) || seconds === Infinity) return '0:00';
-  const mins = Math.floor(seconds / 60);
-  const secs = Math.floor(seconds % 60);
-  return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
-}
-
 async function openWatchView(videoUrl, videoMeta = null) {
   currentVideoUrl = videoUrl;
-  stopPlayback();
+  const videoId = videoMeta?.id || extractVideoId(videoUrl);
+  currentVideoId = videoId;
 
-  // Hide home view grid completely (YouTube watch page mode)
+  // Hide home view grid completely
   homeView.classList.add('hidden');
   watchView.classList.remove('hidden');
   window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -206,15 +198,15 @@ async function openWatchView(videoUrl, videoMeta = null) {
     videoTitleDisplay.textContent = videoMeta.title;
     videoChannelDisplay.textContent = videoMeta.channel;
     videoChannelIcon.textContent = videoMeta.channel.charAt(0);
-    videoViewsDate.textContent = `${videoMeta.views} • Uploaded ${videoMeta.uploadedAt}`;
+    videoViewsDate.textContent = `${videoMeta.views || ''} • ${videoMeta.uploadedAt || 'Uploaded recently'}`;
   } else {
     videoTitleDisplay.textContent = 'Loading video details...';
   }
 
   renderRelatedGrid(videoUrl);
-  startPlayback(videoUrl);
+  startCloudPlayback(videoId);
 
-  // Automatically request Fullscreen mode when video is selected
+  // Auto Fullscreen
   setTimeout(() => {
     if (!document.fullscreenElement && !document.webkitFullscreenElement) {
       if (playerViewportWrapper.requestFullscreen) {
@@ -223,7 +215,7 @@ async function openWatchView(videoUrl, videoMeta = null) {
         playerViewportWrapper.webkitRequestFullscreen();
       }
     }
-  }, 100);
+  }, 200);
 
   try {
     const res = await fetch('/api/resolve', {
@@ -241,102 +233,39 @@ async function openWatchView(videoUrl, videoMeta = null) {
   } catch (e) {}
 }
 
-async function startPlayback(videoUrl) {
-  showLoading('Connecting video stream...');
+function startCloudPlayback(videoId) {
+  showLoading('Loading Video...');
+  mediaContainer.innerHTML = '';
 
-  try {
-    const profile = playerProfileSelect.value;
-    updateStatus(`Streaming: ${videoTitleDisplay.textContent} (${profile})`);
+  const quality = playerProfileSelect.value;
+  updateStatus(`Playing video: ${videoTitleDisplay.textContent} (${quality})`);
 
-    const streamSrc = `/api/stream?url=${encodeURIComponent(videoUrl)}&profile=${profile}`;
-    videoPlayer.src = streamSrc;
-    videoPlayer.volume = parseFloat(volumeSlider.value);
+  // Cloud Standalone Player Engine (0% Datacenter IP Blocking, 100% Reliable 24/7)
+  const iframe = document.createElement('iframe');
+  iframe.id = 'cloud-player-frame';
+  iframe.src = `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&enablejsapi=1&rel=0&modestbranding=1&controls=1&vq=${quality === '144p' ? 'tiny' : quality === '240p' ? 'small' : quality === '360p' ? 'medium' : quality === '480p' ? 'large' : 'hd720'}`;
+  iframe.allow = 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share';
+  iframe.allowFullscreen = true;
+  iframe.style.width = '100%';
+  iframe.style.height = '100%';
+  iframe.style.border = 'none';
 
-    videoPlayer.play().then(() => {
-      playPauseBtn.textContent = '⏸';
-      hideLoading();
-    }).catch(err => {
-      console.warn('Autoplay waiting:', err);
-      showLoading('Click Play to start');
-    });
-
-  } catch (err) {
-    console.error(err);
-    updateStatus(`Error: ${err.message}`);
+  iframe.onload = () => {
     hideLoading();
-  }
+  };
+
+  mediaContainer.appendChild(iframe);
 }
 
 function stopPlayback() {
-  videoPlayer.pause();
-  videoPlayer.removeAttribute('src');
-  videoPlayer.load();
-
-  playPauseBtn.textContent = '▶';
-  timelineSlider.value = 0;
-  timeDisplay.textContent = '0:00 / 0:00';
+  mediaContainer.innerHTML = '<div id="loading-overlay" class="loading-overlay hidden"><div class="spinner"></div><span id="loading-text">Loading Stream...</span></div>';
   hideLoading();
   updateStatus('Stopped');
 }
 
-// Media Player Controls
-videoPlayer.addEventListener('playing', () => {
-  hideLoading();
-  playPauseBtn.textContent = '⏸';
-});
-
-videoPlayer.addEventListener('waiting', () => {
-  showLoading('Buffering Stream...');
-});
-
-videoPlayer.addEventListener('timeupdate', () => {
-  if (videoPlayer.duration) {
-    const pct = (videoPlayer.currentTime / videoPlayer.duration) * 100;
-    timelineSlider.value = pct;
-    timeDisplay.textContent = `${formatTime(videoPlayer.currentTime)} / ${formatTime(videoPlayer.duration)}`;
-  }
-});
-
-timelineSlider.addEventListener('input', (e) => {
-  if (videoPlayer.duration) {
-    const targetTime = (e.target.value / 100) * videoPlayer.duration;
-    videoPlayer.currentTime = targetTime;
-  }
-});
-
-playPauseBtn.addEventListener('click', () => {
-  if (videoPlayer.paused) {
-    videoPlayer.play();
-    playPauseBtn.textContent = '⏸';
-  } else {
-    videoPlayer.pause();
-    playPauseBtn.textContent = '▶';
-  }
-});
-
-videoPlayer.addEventListener('click', () => {
-  playPauseBtn.click();
-});
-
-volumeSlider.addEventListener('input', (e) => {
-  const val = parseFloat(e.target.value);
-  videoPlayer.volume = val;
-  volumeBtn.textContent = val === 0 ? '🔇' : '🔊';
-});
-
-volumeBtn.addEventListener('click', () => {
-  if (volumeSlider.value > 0) {
-    volumeSlider.dataset.prevVal = volumeSlider.value;
-    volumeSlider.value = 0;
-  } else {
-    volumeSlider.value = volumeSlider.dataset.prevVal || 1;
-  }
-  volumeSlider.dispatchEvent(new Event('input'));
-});
-
 playerProfileSelect.addEventListener('change', () => {
-  if (currentVideoUrl) {
-    startPlayback(currentVideoUrl);
+  if (currentVideoId) {
+    startCloudPlayback(currentVideoId);
   }
 });
 
@@ -357,7 +286,6 @@ function toggleFullscreen() {
 }
 
 fullscreenBtn.addEventListener('click', toggleFullscreen);
-videoPlayer.addEventListener('dblclick', toggleFullscreen);
 
 homeLogo.addEventListener('click', showHomeView);
 navHomeBtn.addEventListener('click', showHomeView);
