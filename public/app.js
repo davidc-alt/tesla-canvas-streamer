@@ -8,17 +8,20 @@ const videoPlayer = document.getElementById('video-player');
 
 const homeLogo = document.getElementById('home-logo');
 const navHomeBtn = document.getElementById('nav-home-btn');
+const backHomeBtn = document.getElementById('back-home-btn');
 
 const homeView = document.getElementById('home-view');
 const watchView = document.getElementById('watch-view');
 const resultsGrid = document.getElementById('results-grid');
 const relatedGrid = document.getElementById('related-grid');
 
+const themeToggleBtn = document.getElementById('theme-toggle-btn');
+const themeIcon = document.getElementById('theme-icon');
+
 const playerViewportWrapper = document.getElementById('player-viewport-wrapper');
 const videoTitleDisplay = document.getElementById('video-title-display');
 const videoChannelDisplay = document.getElementById('video-channel-display');
 const videoChannelIcon = document.getElementById('video-channel-icon');
-const videoSubscribers = document.getElementById('video-subscribers');
 const videoViewsDate = document.getElementById('video-views-date');
 const videoDescriptionText = document.getElementById('video-description-text');
 
@@ -32,6 +35,19 @@ const timeDisplay = document.getElementById('time-display');
 const timelineSlider = document.getElementById('timeline-slider');
 const playerProfileSelect = document.getElementById('player-profile-select');
 const fullscreenBtn = document.getElementById('fullscreen-btn');
+
+// Light / Dark Theme Toggle
+let isLightMode = false;
+themeToggleBtn.addEventListener('click', () => {
+  isLightMode = !isLightMode;
+  if (isLightMode) {
+    document.body.classList.add('light-mode');
+    themeIcon.textContent = '🌙 Dark';
+  } else {
+    document.body.classList.remove('light-mode');
+    themeIcon.textContent = '☀️ Light';
+  }
+});
 
 function updateStatus(msg) {
   statusBar.textContent = `Status: ${msg}`;
@@ -73,7 +89,7 @@ async function handleSearchOrPlay() {
 
 async function performSearch(query) {
   searchBtn.disabled = true;
-  updateStatus(`Searching YouTube for "${query}"...`);
+  updateStatus(`Searching for "${query}"...`);
   resultsGrid.innerHTML = '';
   showHomeView();
 
@@ -89,7 +105,7 @@ async function performSearch(query) {
 
     if (!data.results || data.results.length === 0) {
       updateStatus('No results found.');
-      resultsGrid.innerHTML = '<p style="color:#aaaaaa; font-size:14px; padding:20px;">No videos found matching your query.</p>';
+      resultsGrid.innerHTML = '<p style="color:var(--text-secondary); font-size:14px; padding:20px;">No videos found matching your query.</p>';
       return;
     }
 
@@ -117,7 +133,7 @@ function renderHomeResults(videos) {
         ${video.duration ? `<span class="duration-badge">${video.duration}</span>` : ''}
       </div>
       <div class="card-info">
-        <div class="channel-avatar">${escapeHtml(video.channel.charAt(0) || 'Y')}</div>
+        <div class="channel-avatar">${escapeHtml(video.channel.charAt(0) || 'D')}</div>
         <div class="meta-text">
           <div class="card-title">${escapeHtml(video.title)}</div>
           <div class="card-channel">${escapeHtml(video.channel)}</div>
@@ -181,6 +197,7 @@ async function openWatchView(videoUrl, videoMeta = null) {
   currentVideoUrl = videoUrl;
   stopPlayback();
 
+  // Hide home view grid completely (YouTube watch page mode)
   homeView.classList.add('hidden');
   watchView.classList.remove('hidden');
   window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -197,7 +214,6 @@ async function openWatchView(videoUrl, videoMeta = null) {
   renderRelatedGrid(videoUrl);
   startPlayback(videoUrl);
 
-  // Fetch full details asynchronously
   try {
     const res = await fetch('/api/resolve', {
       method: 'POST',
@@ -334,6 +350,8 @@ videoPlayer.addEventListener('dblclick', toggleFullscreen);
 
 homeLogo.addEventListener('click', showHomeView);
 navHomeBtn.addEventListener('click', showHomeView);
+backHomeBtn.addEventListener('click', showHomeView);
+
 searchBtn.addEventListener('click', handleSearchOrPlay);
 urlInput.addEventListener('keypress', (e) => {
   if (e.key === 'Enter') handleSearchOrPlay();
@@ -345,5 +363,5 @@ document.addEventListener('visibilitychange', () => {
   }
 });
 
-// Load default YouTube Home Feed on launch
+// Load default Home Feed on launch
 performSearch('lofi hip hop');

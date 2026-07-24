@@ -1,3 +1,29 @@
+:root {
+  --bg-primary: #0f0f0f;
+  --bg-secondary: #121212;
+  --bg-card: #1f1f1f;
+  --bg-hover: #272727;
+  --text-primary: #f1f1f1;
+  --text-secondary: #aaaaaa;
+  --border-color: #272727;
+  --accent-red: #ff0000;
+  --pill-bg: #272727;
+  --btn-text: #f1f1f1;
+}
+
+body.light-mode {
+  --bg-primary: #f9f9f9;
+  --bg-secondary: #ffffff;
+  --bg-card: #ffffff;
+  --bg-hover: #e5e5e5;
+  --text-primary: #0f0f0f;
+  --text-secondary: #606060;
+  --border-color: #e5e5e5;
+  --accent-red: #ff0000;
+  --pill-bg: #f2f2f2;
+  --btn-text: #0f0f0f;
+}
+
 * {
   box-sizing: border-box;
   margin: 0;
@@ -5,27 +31,28 @@
 }
 
 html, body {
-  background-color: #0f0f0f;
-  color: #f1f1f1;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
   font-family: Roboto, -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
   min-height: 100vh;
   width: 100%;
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
 
-/* YouTube Top Navbar */
+/* Header Navbar */
 .yt-header {
   position: fixed;
   top: 0;
   left: 0;
   width: 100%;
   height: 56px;
-  background-color: #0f0f0f;
+  background-color: var(--bg-primary);
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 0 16px;
   z-index: 100;
-  border-bottom: 1px solid #272727;
+  border-bottom: 1px solid var(--border-color);
 }
 
 .header-left {
@@ -37,7 +64,7 @@ html, body {
 .menu-btn {
   background: transparent;
   border: none;
-  color: #f1f1f1;
+  color: var(--text-primary);
   cursor: pointer;
   padding: 8px;
   border-radius: 50%;
@@ -46,20 +73,21 @@ html, body {
 }
 
 .menu-btn:hover {
-  background-color: #272727;
+  background-color: var(--bg-hover);
 }
 
 .yt-logo {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   cursor: pointer;
 }
 
 .logo-text {
-  font-size: 18px;
+  font-size: 20px;
   font-weight: 700;
   letter-spacing: -0.5px;
+  color: var(--text-primary);
 }
 
 .header-center {
@@ -73,8 +101,8 @@ html, body {
   display: flex;
   width: 100%;
   height: 40px;
-  background-color: #121212;
-  border: 1px solid #303030;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
   border-radius: 40px;
   overflow: hidden;
 }
@@ -84,16 +112,16 @@ html, body {
   background: transparent;
   border: none;
   padding: 0 16px;
-  color: #f1f1f1;
+  color: var(--text-primary);
   font-size: 14px;
   outline: none;
 }
 
 .search-btn {
-  background-color: #222222;
+  background-color: var(--bg-hover);
   border: none;
-  border-left: 1px solid #303030;
-  color: #f1f1f1;
+  border-left: 1px solid var(--border-color);
+  color: var(--text-primary);
   width: 64px;
   cursor: pointer;
   display: flex;
@@ -102,7 +130,7 @@ html, body {
 }
 
 .search-btn:hover {
-  background-color: #272727;
+  opacity: 0.85;
 }
 
 .header-right {
@@ -111,17 +139,20 @@ html, body {
   gap: 12px;
 }
 
-.header-icon-btn {
-  background: transparent;
-  border: none;
-  color: #f1f1f1;
-  padding: 8px;
-  border-radius: 50%;
+.theme-toggle-btn {
+  background-color: var(--bg-hover);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  padding: 6px 12px;
+  border-radius: 18px;
+  font-size: 13px;
+  font-weight: 600;
   cursor: pointer;
+  transition: all 0.2s ease;
 }
 
-.header-icon-btn:hover {
-  background-color: #272727;
+.theme-toggle-btn:hover {
+  opacity: 0.85;
 }
 
 .user-avatar {
@@ -138,7 +169,7 @@ html, body {
   cursor: pointer;
 }
 
-/* Sidebar & Main Layout */
+/* Sidebar & Layout */
 .yt-container {
   display: flex;
   margin-top: 56px;
@@ -147,13 +178,14 @@ html, body {
 
 .yt-sidebar {
   width: 220px;
-  background-color: #0f0f0f;
+  background-color: var(--bg-primary);
   padding: 12px 8px;
-  border-right: 1px solid #1f1f1f;
+  border-right: 1px solid var(--border-color);
   position: fixed;
   top: 56px;
   bottom: 0;
   overflow-y: auto;
+  transition: transform 0.2s ease;
 }
 
 .sidebar-nav {
@@ -169,7 +201,7 @@ html, body {
   padding: 10px 12px;
   background: transparent;
   border: none;
-  color: #f1f1f1;
+  color: var(--text-primary);
   border-radius: 10px;
   font-size: 14px;
   cursor: pointer;
@@ -178,17 +210,17 @@ html, body {
 }
 
 .nav-item:hover {
-  background-color: #272727;
+  background-color: var(--bg-hover);
 }
 
 .nav-item.active {
-  background-color: #272727;
+  background-color: var(--bg-hover);
   font-weight: 600;
 }
 
 .nav-divider {
   border: none;
-  border-top: 1px solid #272727;
+  border-top: 1px solid var(--border-color);
   margin: 8px 0;
 }
 
@@ -196,16 +228,17 @@ html, body {
   margin-left: 220px;
   flex: 1;
   padding: 16px 24px;
-  background-color: #0f0f0f;
+  background-color: var(--bg-primary);
 }
 
 .status-bar {
   font-size: 12px;
-  color: #aaaaaa;
+  color: var(--text-secondary);
   margin-bottom: 16px;
-  background-color: #181818;
+  background-color: var(--bg-secondary);
   padding: 6px 12px;
   border-radius: 6px;
+  border: 1px solid var(--border-color);
 }
 
 .feed-title {
@@ -228,31 +261,26 @@ html, body {
   cursor: pointer;
 }
 
-.video-card:hover .thumb-img {
-  border-radius: 0;
-}
-
 .thumb-wrapper {
   position: relative;
   width: 100%;
   aspect-ratio: 16 / 9;
   border-radius: 12px;
   overflow: hidden;
-  background-color: #1f1f1f;
+  background-color: var(--bg-card);
 }
 
 .thumb-img {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  transition: border-radius 0.15s ease;
 }
 
 .duration-badge {
   position: absolute;
   bottom: 8px;
   right: 8px;
-  background-color: rgba(0, 0, 0, 0.8);
+  background-color: rgba(0, 0, 0, 0.85);
   color: #fff;
   font-size: 12px;
   font-weight: 600;
@@ -289,7 +317,7 @@ html, body {
 .card-title {
   font-size: 14px;
   font-weight: 600;
-  color: #f1f1f1;
+  color: var(--text-primary);
   line-height: 1.3;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -299,16 +327,35 @@ html, body {
 
 .card-channel, .card-stats {
   font-size: 12px;
-  color: #aaaaaa;
+  color: var(--text-secondary);
 }
 
-/* YouTube Watch / Player View */
+/* Standalone YouTube Watch Page */
 .watch-view {
   width: 100%;
 }
 
 .watch-view.hidden {
   display: none;
+}
+
+.back-bar {
+  margin-bottom: 12px;
+}
+
+.back-btn {
+  background-color: var(--bg-hover);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  padding: 6px 14px;
+  border-radius: 18px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.back-btn:hover {
+  opacity: 0.85;
 }
 
 .watch-layout {
@@ -327,7 +374,7 @@ html, body {
   background-color: #000;
   border-radius: 12px;
   overflow: hidden;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
 }
 
 .media-container {
@@ -372,7 +419,7 @@ video#video-player {
   width: 44px;
   height: 44px;
   border: 4px solid rgba(255, 255, 255, 0.2);
-  border-top-color: #ff0000;
+  border-top-color: var(--accent-red);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
@@ -381,7 +428,6 @@ video#video-player {
   to { transform: rotate(360deg); }
 }
 
-/* Custom Controls Bar */
 .player-controls-bar {
   background-color: #0f0f0f;
   padding: 8px 16px;
@@ -396,7 +442,7 @@ video#video-player {
 
 .timeline-slider {
   width: 100%;
-  accent-color: #ff0000;
+  accent-color: var(--accent-red);
   cursor: pointer;
   height: 4px;
 }
@@ -429,7 +475,7 @@ video#video-player {
 
 .volume-slider {
   width: 70px;
-  accent-color: #ff0000;
+  accent-color: var(--accent-red);
   cursor: pointer;
 }
 
@@ -453,7 +499,7 @@ video#video-player {
   cursor: pointer;
 }
 
-/* Watch Meta & Action Bar */
+/* Watch Details */
 .watch-meta {
   margin-top: 14px;
   display: flex;
@@ -464,7 +510,7 @@ video#video-player {
 .watch-title {
   font-size: 20px;
   font-weight: 700;
-  color: #f1f1f1;
+  color: var(--text-primary);
 }
 
 .watch-action-bar {
@@ -493,12 +539,12 @@ video#video-player {
 
 .channel-subs {
   font-size: 12px;
-  color: #aaaaaa;
+  color: var(--text-secondary);
 }
 
 .subscribe-btn {
-  background-color: #f1f1f1;
-  color: #0f0f0f;
+  background-color: var(--text-primary);
+  color: var(--bg-primary);
   border: none;
   padding: 8px 16px;
   border-radius: 18px;
@@ -508,7 +554,7 @@ video#video-player {
 }
 
 .subscribe-btn:hover {
-  background-color: #d9d9d9;
+  opacity: 0.85;
 }
 
 .video-actions {
@@ -517,9 +563,9 @@ video#video-player {
 }
 
 .action-pill {
-  background-color: #272727;
+  background-color: var(--pill-bg);
   border: none;
-  color: #f1f1f1;
+  color: var(--text-primary);
   padding: 8px 14px;
   border-radius: 18px;
   font-size: 13px;
@@ -531,12 +577,12 @@ video#video-player {
 }
 
 .action-pill:hover {
-  background-color: #3f3f3f;
+  background-color: var(--bg-hover);
 }
 
-/* Description Box */
 .video-description-box {
-  background-color: #272727;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
   padding: 12px 16px;
   border-radius: 12px;
   font-size: 14px;
@@ -548,15 +594,15 @@ video#video-player {
 .desc-stats {
   font-weight: 600;
   font-size: 13px;
-  color: #f1f1f1;
+  color: var(--text-primary);
 }
 
 .desc-text {
-  color: #d9d9d9;
+  color: var(--text-secondary);
   line-height: 1.4;
 }
 
-/* Secondary Up Next Column */
+/* Up Next Sidebar Column */
 .watch-secondary {
   width: 360px;
   display: flex;
