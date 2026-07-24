@@ -258,8 +258,8 @@ function startCanvasPlayback(videoUrl) {
       }
     });
 
-    if (jsmpegPlayer.audioOut) {
-      jsmpegPlayer.audioOut.setVolume(parseFloat(volumeSlider.value));
+    if (jsmpegPlayer) {
+      jsmpegPlayer.volume = parseFloat(volumeSlider.value);
     }
 
   } catch (err) {
@@ -300,8 +300,8 @@ canvasPlayer.addEventListener('click', () => {
 
 volumeSlider.addEventListener('input', (e) => {
   const val = parseFloat(e.target.value);
-  if (jsmpegPlayer && jsmpegPlayer.audioOut) {
-    jsmpegPlayer.audioOut.setVolume(val);
+  if (jsmpegPlayer) {
+    jsmpegPlayer.volume = val;
   }
   volumeBtn.textContent = val === 0 ? '🔇' : '🔊';
 });
