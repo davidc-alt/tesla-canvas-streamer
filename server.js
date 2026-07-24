@@ -38,12 +38,12 @@ app.use((req, res, next) => {
 });
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Resolution profiles for MPEG1 Canvas Streaming (Strict 1x speed 30fps)
+// Resolution profiles for MPEG1 Canvas Streaming (Ultra Smooth Zero Lag)
 const PROFILES = {
-  '144p': { size: '256x144', bitrate: '200k', fps: 24, audioBitrate: '64k' },
-  '240p': { size: '426x240', bitrate: '400k', fps: 30, audioBitrate: '96k' },
-  '360p': { size: '640x360', bitrate: '700k', fps: 30, audioBitrate: '128k' },
-  '480p': { size: '854x480', bitrate: '1200k', fps: 30, audioBitrate: '128k' }
+  '144p': { size: '256x144', bitrate: '150k', fps: 25, audioBitrate: '64k' },
+  '240p': { size: '426x240', bitrate: '300k', fps: 25, audioBitrate: '96k' },
+  '360p': { size: '640x360', bitrate: '500k', fps: 25, audioBitrate: '128k' },
+  '480p': { size: '854x480', bitrate: '900k', fps: 30, audioBitrate: '128k' }
 };
 
 // Fast YouTube search route
@@ -118,11 +118,10 @@ wss.on('connection', async (ws, req) => {
 
     const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
-    // Transcode into MPEG1 Video + MP2 Audio TS stream locked to strict 1x rate (30fps)
+    // Transcode into MPEG1 Video + MP2 Audio TS stream
     ffmpegProc = ffmpeg(rawStreamUrl)
       .inputOptions([
-        '-user_agent', USER_AGENT,
-        '-re' // Read input at native frame rate to guarantee strict 1x playback speed!
+        '-user_agent', USER_AGENT
       ])
       .format('mpegts')
       .videoCodec('mpeg1video')
@@ -135,8 +134,9 @@ wss.on('connection', async (ws, req) => {
         `-maxrate ${profile.bitrate}`,
         `-bufsize ${profile.bitrate}`,
         `-r ${profile.fps}`,
+        '-g 15',
         '-bf 0',
-        '-q:v 5'
+        '-q:v 4'
       ])
       .on('error', (err) => {
         if (err.message && !err.message.includes('SIGKILL')) {
