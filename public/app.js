@@ -214,6 +214,17 @@ async function openWatchView(videoUrl, videoMeta = null) {
   renderRelatedGrid(videoUrl);
   startPlayback(videoUrl);
 
+  // Automatically request Fullscreen mode when video is selected
+  setTimeout(() => {
+    if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+      if (playerViewportWrapper.requestFullscreen) {
+        playerViewportWrapper.requestFullscreen().catch(() => {});
+      } else if (playerViewportWrapper.webkitRequestFullscreen) {
+        playerViewportWrapper.webkitRequestFullscreen();
+      }
+    }
+  }, 100);
+
   try {
     const res = await fetch('/api/resolve', {
       method: 'POST',

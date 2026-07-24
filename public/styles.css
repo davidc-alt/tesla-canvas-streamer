@@ -638,17 +638,34 @@ video#video-player {
   font-size: 13px;
 }
 
-/* Native Fullscreen */
+/* Native Fullscreen Overlay Styles */
 :fullscreen .player-viewport-wrapper,
 :-webkit-full-screen .player-viewport-wrapper {
   width: 100vw !important;
   height: 100vh !important;
   border-radius: 0 !important;
+  position: relative !important;
+  display: flex !important;
+  flex-direction: column !important;
+  background-color: #000 !important;
 }
 
 :fullscreen video#video-player,
 :-webkit-full-screen video#video-player {
+  flex: 1 !important;
   width: 100vw !important;
-  height: 100vh !important;
+  height: calc(100vh - 60px) !important;
   object-fit: contain !important;
+}
+
+:fullscreen .player-controls-bar,
+:-webkit-full-screen .player-controls-bar {
+  position: absolute !important;
+  bottom: 0 !important;
+  left: 0 !important;
+  width: 100% !important;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.95), rgba(0, 0, 0, 0.4), transparent) !important;
+  padding: 12px 24px !important;
+  z-index: 10 !important;
+  transition: opacity 0.25s ease !important;
 }

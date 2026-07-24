@@ -37,6 +37,8 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 // Resolution profiles for H264 hardware-accelerated streaming
 const PROFILES = {
+  '144p': { size: '256x144', bitrate: '250k', crf: 30, audioBitrate: '64k' },
+  '240p': { size: '426x240', bitrate: '450k', crf: 28, audioBitrate: '80k' },
   '360p': { size: '640x360', bitrate: '700k', crf: 26, audioBitrate: '96k' },
   '480p': { size: '854x480', bitrate: '1200k', crf: 24, audioBitrate: '128k' },
   '720p': { size: '1280x720', bitrate: '2500k', crf: 22, audioBitrate: '160k' }
