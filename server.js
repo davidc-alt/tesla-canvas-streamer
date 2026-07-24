@@ -47,27 +47,61 @@ const PROFILES = {
   '480p': { size: '854x480', bitrate: '900k', fps: 30, audioBitrate: '128k' }
 };
 
-// Resilient Stream Extractor (tries tv_embedded, mweb, android_vr, web_embedded)
+// Resilient Cloud Stream Extractor (yt-dlp + Piped & Invidious Fallbacks)
 async function getRawStreamUrl(videoUrl) {
-  const playerClients = [
-    'youtube:player_client=tv_embedded,android_vr',
-    'youtube:player_client=mweb,web_embedded',
-    'youtube:player_client=android,ios'
-  ];
+  const videoIdMatch = videoUrl.match(/(?:v=|\/|embed\/|shorts\/)([\w-]{11})/);
+  const videoId = videoIdMatch ? videoIdMatch[1] : null;
 
-  for (const clientArgs of playerClients) {
-    try {
-      const url = await ytdlp(videoUrl, {
-        getUrl: true,
-        format: '18/b',
-        forceIpv4: true,
-        extractorArgs: clientArgs,
-        noWarnings: true
-      });
-      if (url && url.trim().startsWith('http')) {
-        return url.trim();
-      }
-    } catch (e) {}
+  // 1. Try local yt-dlp first
+  if (ytdlpBinPath) {
+    const playerClients = [
+      'youtube:player_client=tv_embedded,android_vr',
+      'youtube:player_client=mweb,web_embedded',
+      'youtube:player_client=android,ios'
+    ];
+
+    for (const clientArgs of playerClients) {
+      try {
+        const url = await ytdlp(videoUrl, {
+          getUrl: true,
+          format: '18/b',
+          forceIpv4: true,
+          extractorArgs: clientArgs,
+          noWarnings: true
+        });
+        if (url && url.trim().startsWith('http')) {
+          return url.trim();
+        }
+      } catch (e) {}
+    }
+  }
+
+  // 2. Pure Cloud API Stream Resolvers (Piped & Invidious)
+  if (videoId) {
+    const cloudEndpoints = [
+      `https://pipedapi.mha.fi/streams/${videoId}`,
+      `https://api.piped.video/streams/${videoId}`,
+      `https://pipedapi.lunar.icu/streams/${videoId}`,
+      `https://inv.tux.pizza/api/v1/videos/${videoId}`,
+      `https://invidious.nerdvpn.de/api/v1/videos/${videoId}`
+    ];
+
+    for (const ep of cloudEndpoints) {
+      try {
+        const res = await fetch(ep, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.videoStreams && data.videoStreams.length > 0) {
+            const stream = data.videoStreams.find(s => s.quality === '360p' || s.quality === '360') || data.videoStreams[0];
+            if (stream && stream.url) return stream.url;
+          }
+          if (data.formatStreams && data.formatStreams.length > 0) {
+            const stream = data.formatStreams.find(s => s.quality === '360p' || s.resolution === '360p') || data.formatStreams[0];
+            if (stream && stream.url) return stream.url;
+          }
+        }
+      } catch (e) {}
+    }
   }
 
   throw new Error('Unable to resolve YouTube stream URL');
