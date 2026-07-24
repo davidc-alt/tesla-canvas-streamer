@@ -1,11 +1,11 @@
 let currentVideoUrl = '';
 let currentVideoResults = [];
-let currentVideoId = '';
+let jsmpegPlayer = null;
 
 const urlInput = document.getElementById('url-input');
 const searchBtn = document.getElementById('search-btn');
 const statusBar = document.getElementById('status-bar');
-const mediaContainer = document.getElementById('media-container');
+const canvasPlayer = document.getElementById('canvas-player');
 
 const homeLogo = document.getElementById('home-logo');
 const navHomeBtn = document.getElementById('nav-home-btn');
@@ -29,6 +29,9 @@ const videoDescriptionText = document.getElementById('video-description-text');
 const loadingOverlay = document.getElementById('loading-overlay');
 const loadingText = document.getElementById('loading-text');
 
+const playPauseBtn = document.getElementById('play-pause-btn');
+const volumeBtn = document.getElementById('volume-btn');
+const volumeSlider = document.getElementById('volume-slider');
 const playerProfileSelect = document.getElementById('player-profile-select');
 const fullscreenBtn = document.getElementById('fullscreen-btn');
 
@@ -58,9 +61,8 @@ function hideLoading() {
   loadingOverlay.classList.add('hidden');
 }
 
-function extractVideoId(input) {
-  const match = input.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([\w-]{11})/);
-  return match ? match[1] : (input.length === 11 ? input : null);
+function isYouTubeUrl(input) {
+  return /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+$/i.test(input.trim());
 }
 
 function showHomeView() {
@@ -77,9 +79,8 @@ async function handleSearchOrPlay() {
     return;
   }
 
-  const videoId = extractVideoId(query);
-  if (videoId) {
-    openWatchView(`https://www.youtube.com/watch?v=${videoId}`, { id: videoId, title: 'YouTube Video', channel: 'YouTube' });
+  if (isYouTubeUrl(query)) {
+    openWatchView(query);
   } else {
     performSearch(query);
   }
@@ -186,8 +187,7 @@ function escapeHtml(str) {
 
 async function openWatchView(videoUrl, videoMeta = null) {
   currentVideoUrl = videoUrl;
-  const videoId = videoMeta?.id || extractVideoId(videoUrl);
-  currentVideoId = videoId;
+  stopPlayback();
 
   // Hide home view grid completely
   homeView.classList.add('hidden');
@@ -198,13 +198,13 @@ async function openWatchView(videoUrl, videoMeta = null) {
     videoTitleDisplay.textContent = videoMeta.title;
     videoChannelDisplay.textContent = videoMeta.channel;
     videoChannelIcon.textContent = videoMeta.channel.charAt(0);
-    videoViewsDate.textContent = `${videoMeta.views || ''} • ${videoMeta.uploadedAt || 'Uploaded recently'}`;
+    videoViewsDate.textContent = `${videoMeta.views} • Uploaded ${videoMeta.uploadedAt}`;
   } else {
     videoTitleDisplay.textContent = 'Loading video details...';
   }
 
   renderRelatedGrid(videoUrl);
-  startCloudPlayback(videoId);
+  startCanvasPlayback(videoUrl);
 
   // Auto Fullscreen
   setTimeout(() => {
@@ -233,39 +233,92 @@ async function openWatchView(videoUrl, videoMeta = null) {
   } catch (e) {}
 }
 
-function startCloudPlayback(videoId) {
-  showLoading('Loading Video...');
-  mediaContainer.innerHTML = '';
+function startCanvasPlayback(videoUrl) {
+  stopPlayback();
+  showLoading('Connecting Canvas Stream...');
 
-  const quality = playerProfileSelect.value;
-  updateStatus(`Playing video: ${videoTitleDisplay.textContent} (${quality})`);
+  const profile = playerProfileSelect.value;
+  updateStatus(`Streaming Canvas: ${videoTitleDisplay.textContent} (${profile})`);
 
-  // Cloud Standalone Player Engine (0% Datacenter IP Blocking, 100% Reliable 24/7)
-  const iframe = document.createElement('iframe');
-  iframe.id = 'cloud-player-frame';
-  iframe.src = `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&enablejsapi=1&rel=0&modestbranding=1&controls=1&vq=${quality === '144p' ? 'tiny' : quality === '240p' ? 'small' : quality === '360p' ? 'medium' : quality === '480p' ? 'large' : 'hd720'}`;
-  iframe.allow = 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share';
-  iframe.allowFullscreen = true;
-  iframe.style.width = '100%';
-  iframe.style.height = '100%';
-  iframe.style.border = 'none';
+  // Build WebSocket URL
+  const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const wsUrl = `${wsProtocol}//${window.location.host}/?url=${encodeURIComponent(videoUrl)}&profile=${profile}`;
 
-  iframe.onload = () => {
+  try {
+    jsmpegPlayer = new JSMpeg.Player(wsUrl, {
+      canvas: canvasPlayer,
+      autoplay: true,
+      audio: true,
+      loop: false,
+      videoBufferSize: 512 * 1024,
+      audioBufferSize: 128 * 1024,
+      onVideoDecode: () => {
+        hideLoading();
+        playPauseBtn.textContent = '⏸';
+      }
+    });
+
+    if (jsmpegPlayer.audioOut) {
+      jsmpegPlayer.audioOut.setVolume(parseFloat(volumeSlider.value));
+    }
+
+  } catch (err) {
+    console.error('JSMpeg Error:', err);
+    updateStatus(`Canvas Stream error: ${err.message}`);
     hideLoading();
-  };
-
-  mediaContainer.appendChild(iframe);
+  }
 }
 
 function stopPlayback() {
-  mediaContainer.innerHTML = '<div id="loading-overlay" class="loading-overlay hidden"><div class="spinner"></div><span id="loading-text">Loading Stream...</span></div>';
+  if (jsmpegPlayer) {
+    try {
+      jsmpegPlayer.destroy();
+    } catch (e) {}
+    jsmpegPlayer = null;
+  }
+
+  playPauseBtn.textContent = '▶';
   hideLoading();
   updateStatus('Stopped');
 }
 
+// Media Controls
+playPauseBtn.addEventListener('click', () => {
+  if (!jsmpegPlayer) return;
+  if (jsmpegPlayer.isPlaying) {
+    jsmpegPlayer.pause();
+    playPauseBtn.textContent = '▶';
+  } else {
+    jsmpegPlayer.play();
+    playPauseBtn.textContent = '⏸';
+  }
+});
+
+canvasPlayer.addEventListener('click', () => {
+  playPauseBtn.click();
+});
+
+volumeSlider.addEventListener('input', (e) => {
+  const val = parseFloat(e.target.value);
+  if (jsmpegPlayer && jsmpegPlayer.audioOut) {
+    jsmpegPlayer.audioOut.setVolume(val);
+  }
+  volumeBtn.textContent = val === 0 ? '🔇' : '🔊';
+});
+
+volumeBtn.addEventListener('click', () => {
+  if (volumeSlider.value > 0) {
+    volumeSlider.dataset.prevVal = volumeSlider.value;
+    volumeSlider.value = 0;
+  } else {
+    volumeSlider.value = volumeSlider.dataset.prevVal || 1;
+  }
+  volumeSlider.dispatchEvent(new Event('input'));
+});
+
 playerProfileSelect.addEventListener('change', () => {
-  if (currentVideoId) {
-    startCloudPlayback(currentVideoId);
+  if (currentVideoUrl) {
+    startCanvasPlayback(currentVideoUrl);
   }
 });
 
@@ -286,6 +339,7 @@ function toggleFullscreen() {
 }
 
 fullscreenBtn.addEventListener('click', toggleFullscreen);
+canvasPlayer.addEventListener('dblclick', toggleFullscreen);
 
 homeLogo.addEventListener('click', showHomeView);
 navHomeBtn.addEventListener('click', showHomeView);

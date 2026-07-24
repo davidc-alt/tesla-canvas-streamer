@@ -3,6 +3,7 @@ const http = require('http');
 const path = require('path');
 const fs = require('fs');
 const { execSync } = require('child_process');
+const WebSocket = require('ws');
 const ffmpeg = require('fluent-ffmpeg');
 const ffmpegPath = require('ffmpeg-static');
 const YouTube = require('youtube-sr').default;
@@ -27,6 +28,7 @@ console.log('Using yt-dlp executable path:', ytdlpBinPath || 'bundled yt-dlp-exe
 
 const app = express();
 const server = http.createServer(app);
+const wss = new WebSocket.Server({ server });
 
 app.use(express.json());
 app.use((req, res, next) => {
@@ -36,13 +38,12 @@ app.use((req, res, next) => {
 });
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Resolution profiles for H264 hardware-accelerated streaming
+// Resolution profiles for MPEG1 Canvas Streaming (Strict 1x speed 30fps)
 const PROFILES = {
-  '144p': { size: '256x144', bitrate: '250k', crf: 30, audioBitrate: '64k' },
-  '240p': { size: '426x240', bitrate: '450k', crf: 28, audioBitrate: '80k' },
-  '360p': { size: '640x360', bitrate: '700k', crf: 26, audioBitrate: '96k' },
-  '480p': { size: '854x480', bitrate: '1200k', crf: 24, audioBitrate: '128k' },
-  '720p': { size: '1280x720', bitrate: '2500k', crf: 22, audioBitrate: '160k' }
+  '144p': { size: '256x144', bitrate: '200k', fps: 24, audioBitrate: '64k' },
+  '240p': { size: '426x240', bitrate: '400k', fps: 30, audioBitrate: '96k' },
+  '360p': { size: '640x360', bitrate: '700k', fps: 30, audioBitrate: '128k' },
+  '480p': { size: '854x480', bitrate: '1200k', fps: 30, audioBitrate: '128k' }
 };
 
 // Fast YouTube search route
@@ -95,56 +96,76 @@ app.post('/api/resolve', async (req, res) => {
   }
 });
 
-// Ultra-fast H264 + AAC Video Stream Endpoint
-app.get('/api/stream', async (req, res) => {
-  const videoUrl = req.query.url;
-  const profileKey = req.query.profile || '360p';
+// WebSocket Canvas Transcoder for Tesla Chromium In-Drive Playback
+wss.on('connection', async (ws, req) => {
+  const urlParams = new URLSearchParams(req.url.replace('/?', ''));
+  const videoUrl = urlParams.get('url');
+  const profileKey = urlParams.get('profile') || '360p';
   const profile = PROFILES[profileKey] || PROFILES['360p'];
 
-  if (!videoUrl) return res.status(400).send('Missing video URL');
+  if (!videoUrl) {
+    ws.close(1008, 'Missing video URL');
+    return;
+  }
 
-  res.setHeader('Content-Type', 'video/mp4');
-  res.setHeader('Transfer-Encoding', 'chunked');
+  console.log(`[WebSocket] Client connected for Tesla Canvas Stream: ${videoUrl} (${profileKey})`);
+
+  let ffmpegProc = null;
 
   try {
-    // Fast stream link extraction (format '18/b')
+    // Fast stream URL extraction
     const rawStreamUrl = (await ytdlp(videoUrl, { getUrl: true, format: '18/b', forceIpv4: true })).trim();
 
     const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
-    const ffmpegProc = ffmpeg(rawStreamUrl)
+    // Transcode into MPEG1 Video + MP2 Audio TS stream locked to strict 1x rate (30fps)
+    ffmpegProc = ffmpeg(rawStreamUrl)
       .inputOptions([
-        '-user_agent', USER_AGENT
+        '-user_agent', USER_AGENT,
+        '-re' // Read input at native frame rate to guarantee strict 1x playback speed!
       ])
-      .format('mp4')
-      .videoCodec('libx264')
+      .format('mpegts')
+      .videoCodec('mpeg1video')
       .size(profile.size)
-      .audioCodec('aac')
+      .audioCodec('mp2')
       .audioBitrate(profile.audioBitrate)
       .audioChannels(2)
       .outputOptions([
-        '-preset ultrafast',
-        `-crf ${profile.crf}`,
+        `-b:v ${profile.bitrate}`,
         `-maxrate ${profile.bitrate}`,
         `-bufsize ${profile.bitrate}`,
-        '-movflags frag_keyframe+empty_moov+default_base_moof'
+        `-r ${profile.fps}`,
+        '-bf 0',
+        '-q:v 5'
       ])
       .on('error', (err) => {
-        if (err.message && !err.message.includes('SIGKILL') && !err.message.includes('Output stream closed')) {
-          console.error('Video streaming error:', err.message);
+        if (err.message && !err.message.includes('SIGKILL')) {
+          console.error('[FFmpeg Error]', err.message);
         }
       });
 
-    const videoStream = ffmpegProc.pipe();
-    videoStream.pipe(res);
+    const stream = ffmpegProc.pipe();
 
-    req.on('close', () => {
-      ffmpegProc.kill('SIGKILL');
+    stream.on('data', (chunk) => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(chunk);
+      }
+    });
+
+    ws.on('close', () => {
+      console.log('[WebSocket] Client disconnected');
+      if (ffmpegProc) ffmpegProc.kill('SIGKILL');
+    });
+
+    ws.on('error', () => {
+      if (ffmpegProc) ffmpegProc.kill('SIGKILL');
     });
 
   } catch (err) {
-    console.error('Stream setup error:', err.message || err);
-    if (!res.headersSent) res.status(500).send('Stream initialization failed');
+    console.error('[Canvas Stream Error]', err.message || err);
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.close(1011, 'Stream initialization failed');
+    }
   }
 });
 
