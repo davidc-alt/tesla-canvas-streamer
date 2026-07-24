@@ -38,12 +38,12 @@ app.use((req, res, next) => {
 });
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Resolution profiles for MPEG1 Canvas Streaming (Ultra Smooth Zero Lag)
+// Resolution profiles for MPEG1 Canvas Streaming (Strict 1x real-time speed)
 const PROFILES = {
-  '144p': { size: '256x144', bitrate: '150k', fps: 25, audioBitrate: '64k' },
-  '240p': { size: '426x240', bitrate: '300k', fps: 25, audioBitrate: '96k' },
-  '360p': { size: '640x360', bitrate: '500k', fps: 25, audioBitrate: '128k' },
-  '480p': { size: '854x480', bitrate: '900k', fps: 30, audioBitrate: '128k' }
+  '144p': { size: '256x144', bitrate: '150k', fps: 25, audioBitrate: '64k', bps: 27000 },
+  '240p': { size: '426x240', bitrate: '300k', fps: 25, audioBitrate: '96k', bps: 50000 },
+  '360p': { size: '640x360', bitrate: '500k', fps: 25, audioBitrate: '128k', bps: 80000 },
+  '480p': { size: '854x480', bitrate: '900k', fps: 30, audioBitrate: '128k', bps: 130000 }
 };
 
 // Fast YouTube search route
@@ -96,7 +96,7 @@ app.post('/api/resolve', async (req, res) => {
   }
 });
 
-// WebSocket Canvas Transcoder for Tesla Chromium In-Drive Playback
+// WebSocket Canvas Transcoder with Strict 1x Real-Time Rate Locking
 wss.on('connection', async (ws, req) => {
   const urlParams = new URLSearchParams(req.url.replace('/?', ''));
   const videoUrl = urlParams.get('url');
@@ -108,9 +108,13 @@ wss.on('connection', async (ws, req) => {
     return;
   }
 
-  console.log(`[WebSocket] Client connected for Tesla Canvas Stream: ${videoUrl} (${profileKey})`);
+  console.log(`[WebSocket] Client connected for Tesla Canvas Stream (1x Speed Lock): ${videoUrl} (${profileKey})`);
 
   let ffmpegProc = null;
+  let sendQueue = [];
+  let isSending = false;
+  let bytesSent = 0;
+  const startTime = Date.now();
 
   try {
     // Fast stream URL extraction
@@ -146,19 +150,43 @@ wss.on('connection', async (ws, req) => {
 
     const stream = ffmpegProc.pipe();
 
-    stream.on('data', (chunk) => {
-      if (ws.readyState === WebSocket.OPEN) {
+    // Strict 1x Speed Real-Time Pacing Controller
+    const processQueue = () => {
+      if (ws.readyState !== WebSocket.OPEN) return;
+
+      const elapsedSec = (Date.now() - startTime) / 1000;
+      const maxAllowedBytes = elapsedSec * profile.bps;
+
+      while (sendQueue.length > 0 && bytesSent < maxAllowedBytes + (profile.bps * 2)) {
+        const chunk = sendQueue.shift();
         ws.send(chunk);
+        bytesSent += chunk.length;
+      }
+
+      if (sendQueue.length > 0) {
+        setTimeout(processQueue, 40);
+      } else {
+        isSending = false;
+      }
+    };
+
+    stream.on('data', (chunk) => {
+      sendQueue.push(chunk);
+      if (!isSending) {
+        isSending = true;
+        processQueue();
       }
     });
 
     ws.on('close', () => {
       console.log('[WebSocket] Client disconnected');
       if (ffmpegProc) ffmpegProc.kill('SIGKILL');
+      sendQueue = [];
     });
 
     ws.on('error', () => {
       if (ffmpegProc) ffmpegProc.kill('SIGKILL');
+      sendQueue = [];
     });
 
   } catch (err) {
