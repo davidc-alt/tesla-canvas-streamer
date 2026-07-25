@@ -3,7 +3,11 @@ const http = require('http');
 const path = require('path');
 const fs = require('fs');
 const { execSync } = require('child_process');
+const ffmpeg = require('fluent-ffmpeg');
+const ffmpegPath = require('ffmpeg-static');
 const YouTube = require('youtube-sr').default;
+
+ffmpeg.setFfmpegPath(ffmpegPath);
 
 // Locate system or local yt-dlp binary if available
 let ytdlpBinPath = null;
@@ -29,6 +33,7 @@ const server = http.createServer(app);
 
 app.use(express.json());
 app.use((req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('bypass-tunnel-reminder', 'true');
   res.setHeader('ngrok-skip-browser-warning', 'true');
   next();
@@ -70,18 +75,17 @@ app.post('/api/search', async (req, res) => {
   }
 });
 
-// Resilient Stream URL Resolver for Client-Side Canvas Renderer
-app.get('/api/resolve-stream', async (req, res) => {
-  const videoId = req.query.id;
-  if (!videoId) return res.status(400).json({ error: 'Missing video ID' });
+// Resilient Stream URL Resolver
+async function getRawStreamUrl(videoUrl) {
+  const videoIdMatch = videoUrl.match(/(?:v=|\/|embed\/|shorts\/)([\w-]{11})/);
+  const videoId = videoIdMatch ? videoIdMatch[1] : null;
 
-  const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
-
-  // 1. Try local yt-dlp with tv_embedded / android_vr clients
+  // 1. Try local yt-dlp first
   if (ytdlpBinPath) {
     const playerClients = [
       'youtube:player_client=tv_embedded,android_vr',
-      'youtube:player_client=mweb,web_embedded'
+      'youtube:player_client=mweb,web_embedded',
+      'youtube:player_client=android,ios'
     ];
 
     for (const clientArgs of playerClients) {
@@ -94,40 +98,84 @@ app.get('/api/resolve-stream', async (req, res) => {
           noWarnings: true
         });
         if (url && url.trim().startsWith('http')) {
-          return res.json({ streamUrl: url.trim() });
+          return url.trim();
         }
       } catch (e) {}
     }
   }
 
   // 2. Pure Cloud API Stream Resolvers (Piped & Invidious)
-  const cloudEndpoints = [
-    `https://pipedapi.mha.fi/streams/${videoId}`,
-    `https://api.piped.video/streams/${videoId}`,
-    `https://pipedapi.lunar.icu/streams/${videoId}`,
-    `https://inv.tux.pizza/api/v1/videos/${videoId}`,
-    `https://invidious.nerdvpn.de/api/v1/videos/${videoId}`
-  ];
+  if (videoId) {
+    const cloudEndpoints = [
+      `https://pipedapi.mha.fi/streams/${videoId}`,
+      `https://api.piped.video/streams/${videoId}`,
+      `https://pipedapi.lunar.icu/streams/${videoId}`,
+      `https://inv.tux.pizza/api/v1/videos/${videoId}`,
+      `https://invidious.nerdvpn.de/api/v1/videos/${videoId}`
+    ];
 
-  for (const ep of cloudEndpoints) {
-    try {
-      const apiRes = await fetch(ep, { headers: { 'User-Agent': 'Mozilla/5.0' } });
-      if (apiRes.ok) {
-        const data = await apiRes.json();
-        if (data.videoStreams && data.videoStreams.length > 0) {
-          const stream = data.videoStreams.find(s => s.quality === '360p' || s.quality === '360') || data.videoStreams[0];
-          if (stream && stream.url) return res.json({ streamUrl: stream.url });
+    for (const ep of cloudEndpoints) {
+      try {
+        const res = await fetch(ep, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.videoStreams && data.videoStreams.length > 0) {
+            const stream = data.videoStreams.find(s => s.quality === '360p' || s.quality === '360') || data.videoStreams[0];
+            if (stream && stream.url) return stream.url;
+          }
+          if (data.formatStreams && data.formatStreams.length > 0) {
+            const stream = data.formatStreams.find(s => s.quality === '360p' || s.resolution === '360p') || data.formatStreams[0];
+            if (stream && stream.url) return stream.url;
+          }
         }
-        if (data.formatStreams && data.formatStreams.length > 0) {
-          const stream = data.formatStreams.find(s => s.quality === '360p' || s.resolution === '360p') || data.formatStreams[0];
-          if (stream && stream.url) return res.json({ streamUrl: stream.url });
-        }
-      }
-    } catch (e) {}
+      } catch (e) {}
+    }
   }
 
-  // Fallback to proxy embed
-  res.json({ streamUrl: `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1` });
+  throw new Error('Unable to resolve YouTube stream URL');
+}
+
+// Proxied CORS-Allowed Fragmented MP4 Stream for HTML5 Canvas In-Drive Renderer
+app.get('/api/canvas-stream', async (req, res) => {
+  const videoId = req.query.id;
+  if (!videoId) return res.status(400).send('Missing video ID');
+
+  const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Content-Type', 'video/mp4');
+
+  try {
+    const rawStreamUrl = await getRawStreamUrl(videoUrl);
+    const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+
+    const ffmpegProc = ffmpeg(rawStreamUrl)
+      .inputOptions([
+        '-user_agent', USER_AGENT
+      ])
+      .format('mp4')
+      .outputOptions([
+        '-movflags frag_keyframe+empty_moov+default_base_moof',
+        '-vcodec copy',
+        '-acodec copy'
+      ])
+      .on('error', (err) => {
+        if (err.message && !err.message.includes('SIGKILL')) {
+          console.error('[FFmpeg Error]', err.message);
+        }
+      });
+
+    ffmpegProc.pipe(res);
+
+    req.on('close', () => {
+      ffmpegProc.kill('SIGKILL');
+    });
+
+  } catch (err) {
+    console.error('[Canvas Stream Error]', err.message || err);
+    if (!res.headersSent) {
+      res.status(500).send('Stream failed');
+    }
+  }
 });
 
 // Fast video resolution metadata route

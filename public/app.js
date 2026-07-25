@@ -268,27 +268,15 @@ function startCanvasPlayback(videoId) {
     animationFrameId = requestAnimationFrame(renderFrame);
   }
 
-  fetch(`/api/resolve-stream?id=${videoId}`)
-    .then(res => res.json())
-    .then(data => {
-      if (data.streamUrl) {
-        videoEl.src = data.streamUrl;
-        videoEl.play().then(() => {
-          hideLoading();
-          playPauseBtn.textContent = '⏸';
-          renderFrame();
-        }).catch(err => {
-          console.error('Video play error:', err);
-          hideLoading();
-        });
-      } else {
-        hideLoading();
-      }
-    })
-    .catch(err => {
-      console.error('Stream resolution error:', err);
-      hideLoading();
-    });
+  videoEl.src = `/api/canvas-stream?id=${videoId}`;
+  videoEl.play().then(() => {
+    hideLoading();
+    playPauseBtn.textContent = '⏸';
+    renderFrame();
+  }).catch(err => {
+    console.error('Video play error:', err);
+    hideLoading();
+  });
 }
 
 function stopPlayback() {
