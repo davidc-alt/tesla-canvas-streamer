@@ -35,6 +35,16 @@ app.use((req, res, next) => {
 });
 app.use(express.static(path.join(__dirname, 'public')));
 
+// 24/7 Keep-Alive Self-Ping Heartbeat (Prevents Render Free Tier from Sleeping)
+const RENDER_URL = process.env.RENDER_EXTERNAL_URL || 'https://tesla-canvas-streamer.onrender.com';
+setInterval(() => {
+  fetch(`${RENDER_URL}/api/ping`).catch(() => {});
+}, 4 * 60 * 1000);
+
+app.get('/api/ping', (req, res) => {
+  res.send('PONG');
+});
+
 // Fast YouTube search route
 app.post('/api/search', async (req, res) => {
   const { query } = req.body;
