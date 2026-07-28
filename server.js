@@ -2,7 +2,7 @@ const express = require('express');
 const http = require('http');
 const path = require('path');
 const fs = require('fs');
-const { execSync } = require('child_process');
+const { execSync, spawn } = require('child_process');
 const ffmpeg = require('fluent-ffmpeg');
 const ffmpegPath = require('ffmpeg-static');
 const YouTube = require('youtube-sr').default;
@@ -24,7 +24,17 @@ if (fs.existsSync(localYtDlp)) {
 }
 
 const ytdlpExec = require('yt-dlp-exec');
-const ytdlp = ytdlpBinPath ? ytdlpExec.create(ytdlpBinPath) : ytdlpExec;
+const ytdlp = (url, opts) => {
+  const env = {
+    ...process.env,
+    PATH: '/opt/homebrew/bin:/usr/local/bin:' + (process.env.PATH || ''),
+    DEVELOPER_DIR: '/Library/Developer/CommandLineTools'
+  };
+  if (ytdlpBinPath) {
+    return ytdlpExec.create(ytdlpBinPath)(url, { ...opts, env });
+  }
+  return ytdlpExec(url, { ...opts, env });
+};
 
 console.log('Using yt-dlp executable path:', ytdlpBinPath || 'bundled yt-dlp-exec');
 
@@ -38,9 +48,18 @@ app.use((req, res, next) => {
   res.setHeader('ngrok-skip-browser-warning', 'true');
   next();
 });
+
+const jobsDir = path.join(__dirname, 'public', 'jobs');
+if (!fs.existsSync(jobsDir)) {
+  fs.mkdirSync(jobsDir, { recursive: true });
+}
+
 app.use(express.static(path.join(__dirname, 'public')));
 
-// 24/7 Keep-Alive Self-Ping Heartbeat (Prevents Render Free Tier from Sleeping)
+// Active processing jobs cache
+const jobs = {};
+
+// 24/7 Keep-Alive Self-Ping Heartbeat
 const RENDER_URL = process.env.RENDER_EXTERNAL_URL || 'https://tesla-canvas-streamer.onrender.com';
 setInterval(() => {
   fetch(`${RENDER_URL}/api/ping`).catch(() => {});
@@ -75,33 +94,20 @@ app.post('/api/search', async (req, res) => {
   }
 });
 
-// Resilient Stream URL Resolver
+// Stream URL Resolver
 async function getRawStreamUrl(videoUrl) {
   const videoIdMatch = videoUrl.match(/(?:v=|\/|embed\/|shorts\/)([\w-]{11})/);
   const videoId = videoIdMatch ? videoIdMatch[1] : null;
 
-  // 1. Try local yt-dlp first
-  if (ytdlpBinPath) {
-    const playerClients = [
-      'youtube:player_client=tv_embedded,android_vr',
-      'youtube:player_client=mweb,web_embedded',
-      'youtube:player_client=android,ios'
-    ];
-
-    for (const clientArgs of playerClients) {
-      try {
-        const url = await ytdlp(videoUrl, {
-          getUrl: true,
-          format: '18/b',
-          forceIpv4: true,
-          extractorArgs: clientArgs,
-          noWarnings: true
-        });
-        if (url && url.trim().startsWith('http')) {
-          return url.trim();
-        }
-      } catch (e) {}
-    }
+  // 1. Try python3 + yt-dlp binary directly
+  try {
+    const pyBin = fs.existsSync('/opt/homebrew/bin/python3') ? '/opt/homebrew/bin/python3' : 'python3';
+    const ytdlpScript = ytdlpBinPath || path.join(__dirname, 'yt-dlp');
+    const cmd = `"${pyBin}" "${ytdlpScript}" "${videoUrl}" --get-url --format 18/b --force-ipv4 --no-warnings`;
+    const url = execSync(cmd, { encoding: 'utf-8', timeout: 10000 }).trim();
+    if (url && url.startsWith('http')) return url;
+  } catch (e) {
+    console.error('yt-dlp exec error:', e.message || e);
   }
 
   // 2. Pure Cloud API Stream Resolvers (Piped & Invidious)
@@ -135,47 +141,123 @@ async function getRawStreamUrl(videoUrl) {
   throw new Error('Unable to resolve YouTube stream URL');
 }
 
-// Proxied CORS-Allowed Fragmented MP4 Stream for HTML5 Canvas In-Drive Renderer
-app.get('/api/canvas-stream', async (req, res) => {
-  const videoId = req.query.id;
-  if (!videoId) return res.status(400).send('Missing video ID');
+// Start Processing Video Ahead of Time into Image Sequence & Audio
+app.post('/api/process-video', async (req, res) => {
+  const { url } = req.body;
+  if (!url) return res.status(400).json({ error: 'Video URL is required' });
 
-  const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Content-Type', 'video/mp4');
+  const videoIdMatch = url.match(/(?:v=|\/|embed\/|shorts\/)([\w-]{11})/);
+  if (!videoIdMatch) return res.status(400).json({ error: 'Invalid YouTube URL' });
 
+  const videoId = videoIdMatch[1];
+  const jobDir = path.join(jobsDir, videoId);
+
+  // Return cached job if already processing or completed
+  if (jobs[videoId]) {
+    return res.json(jobs[videoId]);
+  }
+
+  // Check if already processed on disk
+  if (fs.existsSync(jobDir) && fs.existsSync(path.join(jobDir, 'meta.json'))) {
+    const meta = JSON.parse(fs.readFileSync(path.join(jobDir, 'meta.json'), 'utf-8'));
+    jobs[videoId] = meta;
+    return res.json(meta);
+  }
+
+  if (!fs.existsSync(jobDir)) {
+    fs.mkdirSync(jobDir, { recursive: true });
+  }
+
+  const jobMeta = {
+    id: videoId,
+    status: 'initializing',
+    percent: 0,
+    fps: 15,
+    totalFrames: 0,
+    audioUrl: `/jobs/${videoId}/audio.mp3`,
+    framePattern: `/jobs/${videoId}/frame_%04d.jpg`
+  };
+
+  jobs[videoId] = jobMeta;
+  res.json(jobMeta);
+
+  // Run background processing
   try {
-    const rawStreamUrl = await getRawStreamUrl(videoUrl);
-    const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+    jobMeta.status = 'extracting_stream';
+    jobMeta.percent = 5;
 
+    const rawStreamUrl = await getRawStreamUrl(url);
+
+    jobMeta.status = 'processing_frames';
+    jobMeta.percent = 15;
+
+    const audioPath = path.join(jobDir, 'audio.mp3');
+    const framePatternPath = path.join(jobDir, 'frame_%04d.jpg');
+
+    // Extract MP3 Audio & Image Sequence simultaneously at 15 FPS (426x240 resolution)
+    let processedFrames = 0;
     const ffmpegProc = ffmpeg(rawStreamUrl)
-      .inputOptions([
-        '-user_agent', USER_AGENT
-      ])
-      .format('mp4')
+      .inputOptions(['-user_agent', 'Mozilla/5.0'])
+      .output(audioPath)
+      .audioCodec('libmp3lame')
+      .audioBitrate('96k')
+      .output(framePatternPath)
       .outputOptions([
-        '-movflags frag_keyframe+empty_moov+default_base_moof',
-        '-vcodec copy',
-        '-acodec copy'
+        '-r 15',
+        '-s 426x240',
+        '-q:v 6'
       ])
-      .on('error', (err) => {
-        if (err.message && !err.message.includes('SIGKILL')) {
-          console.error('[FFmpeg Error]', err.message);
+      .on('progress', (p) => {
+        if (p.percent) {
+          jobMeta.percent = Math.min(95, Math.max(15, Math.floor(p.percent)));
+        } else if (p.frames) {
+          processedFrames = p.frames;
+          jobMeta.totalFrames = processedFrames;
+          jobMeta.percent = Math.min(95, 15 + Math.floor(processedFrames / 30));
         }
+      })
+      .on('end', () => {
+        // Count total frames written to disk
+        const files = fs.readdirSync(jobDir).filter(f => f.startsWith('frame_') && f.endsWith('.jpg'));
+        jobMeta.totalFrames = files.length;
+        jobMeta.percent = 100;
+        jobMeta.status = 'ready';
+
+        fs.writeFileSync(path.join(jobDir, 'meta.json'), JSON.stringify(jobMeta, null, 2));
+        console.log(`[Job Complete] ${videoId}: ${jobMeta.totalFrames} frames extracted successfully.`);
+      })
+      .on('error', (err) => {
+        console.error(`[Job Error] ${videoId}:`, err.message);
+        jobMeta.status = 'error';
+        jobMeta.error = err.message;
       });
 
-    ffmpegProc.pipe(res);
-
-    req.on('close', () => {
-      ffmpegProc.kill('SIGKILL');
-    });
+    ffmpegProc.run();
 
   } catch (err) {
-    console.error('[Canvas Stream Error]', err.message || err);
-    if (!res.headersSent) {
-      res.status(500).send('Stream failed');
-    }
+    console.error(`[Job Failed] ${videoId}:`, err.message);
+    jobMeta.status = 'error';
+    jobMeta.error = err.message;
   }
+});
+
+// Job Status Route
+app.get('/api/job-status', (req, res) => {
+  const videoId = req.query.id;
+  if (!videoId) return res.status(400).json({ error: 'Missing video ID' });
+
+  if (jobs[videoId]) {
+    return res.json(jobs[videoId]);
+  }
+
+  const jobDir = path.join(jobsDir, videoId);
+  if (fs.existsSync(jobDir) && fs.existsSync(path.join(jobDir, 'meta.json'))) {
+    const meta = JSON.parse(fs.readFileSync(path.join(jobDir, 'meta.json'), 'utf-8'));
+    jobs[videoId] = meta;
+    return res.json(meta);
+  }
+
+  res.status(404).json({ error: 'Job not found' });
 });
 
 // Fast video resolution metadata route

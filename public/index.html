@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>David</title>
   <link rel="stylesheet" href="styles.css">
-  <script src="jsmpeg.min.js"></script>
 </head>
 <body>
   <!-- Header Bar -->
@@ -88,28 +87,33 @@
               <div id="media-container" class="media-container">
                 <!-- Pure HTML5 Canvas Element for Tesla Chromium In-Drive Bypass (Zero <video> or <iframe> tags!) -->
                 <canvas id="canvas-player"></canvas>
-                <div id="loading-overlay" class="loading-overlay hidden">
-                  <div class="spinner"></div>
-                  <span id="loading-text">Loading Canvas Stream...</span>
+
+                <!-- Processing Progress Bar Overlay -->
+                <div id="processing-overlay" class="processing-overlay">
+                  <div class="processing-card">
+                    <h3 class="processing-title">Processing Video for Driving Playback</h3>
+                    <p id="processing-status-text" class="processing-status-text">Preparing video conversion...</p>
+                    <div class="progress-bar-container">
+                      <div id="progress-bar-fill" class="progress-bar-fill"></div>
+                    </div>
+                    <span id="progress-percentage" class="progress-percentage">0%</span>
+                  </div>
                 </div>
               </div>
 
               <!-- Custom Integrated Player Controls Overlay -->
               <div class="player-controls-bar">
+                <div class="timeline-wrapper">
+                  <input type="range" id="timeline-slider" min="0" max="100" value="0" step="0.1" class="timeline-slider" />
+                </div>
                 <div class="controls-row">
                   <div class="controls-left">
                     <button id="play-pause-btn" class="control-btn" title="Play/Pause">⏸</button>
                     <button id="volume-btn" class="control-btn" title="Mute/Unmute">🔊</button>
                     <input type="range" id="volume-slider" min="0" max="1" step="0.05" value="1" class="volume-slider" />
+                    <span id="time-display" class="time-display">0:00 / 0:00</span>
                   </div>
                   <div class="controls-right">
-                    <label for="player-profile-select" class="profile-label">Quality:</label>
-                    <select id="player-profile-select" class="player-profile-select">
-                      <option value="144p">144p (Ultra Low)</option>
-                      <option value="240p">240p (Low Bandwidth)</option>
-                      <option value="360p" selected>360p (Standard Light)</option>
-                      <option value="480p">480p (Medium HD)</option>
-                    </select>
                     <button id="fullscreen-btn" class="control-btn" title="Fullscreen">⛶</button>
                   </div>
                 </div>
