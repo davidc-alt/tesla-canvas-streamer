@@ -1,0 +1,36 @@
+[
+  {
+    "id": "Fr5-BFGymo0",
+    "title": "Tesla FSD Supervised v12.5.2 Walmart Test | ASSERTIVE FSD Driving Profile",
+    "channel": "FSD Observer",
+    "duration": 501,
+    "formattedDuration": "08:21",
+    "fps": 24,
+    "frameCount": 12019,
+    "resolution": "360p (640x360)",
+    "width": 640,
+    "height": 360,
+    "thumbnailUrl": "https://i.ytimg.com/vi/Fr5-BFGymo0/maxresdefault.jpg",
+    "audioUrl": "/api/library/Fr5-BFGymo0/audio",
+    "framesUrlPattern": "/api/library/Fr5-BFGymo0/frames/frame_%05d.jpg",
+    "totalSizeMB": 339.1,
+    "processedAt": "2026-07-28T21:40:53.798Z"
+  },
+  {
+    "id": "jNQXAC9IVRw",
+    "title": "Me at the zoo",
+    "channel": "jawed",
+    "duration": 19,
+    "formattedDuration": "00:19",
+    "fps": 12,
+    "frameCount": 227,
+    "resolution": "360p (640x360)",
+    "width": 640,
+    "height": 360,
+    "thumbnailUrl": "https://i.ytimg.com/vi/jNQXAC9IVRw/hqdefault.jpg?sqp=-oaymwEmCOADEOgC8quKqQMa8AEB-AG-AoAC8AGKAgwIABABGFUgWShlMA8=&rs=AOn4CLA9eLBatYv9WbkD4BbZ2Im-biSPTw",
+    "audioUrl": "/api/library/jNQXAC9IVRw/audio",
+    "framesUrlPattern": "/api/library/jNQXAC9IVRw/frames/frame_%05d.jpg",
+    "totalSizeMB": 5,
+    "processedAt": "2026-07-28T21:33:33.591Z"
+  }
+]

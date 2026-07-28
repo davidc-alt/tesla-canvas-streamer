@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tesla Canvas Streamer — Drive-Mode Compliant Video Player</title>
+  <meta name="description" content="Process YouTube videos at 360p into synchronized image sequences and play them on HTML5 Canvas in your Tesla browser while driving.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header Navbar -->
+    <header class="navbar">
+      <div class="nav-brand">
+        <div class="logo-icon">
+          <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M23 7l-7 5 7 5V7z"></path>
+            <rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
+          </svg>
+        </div>
+        <div class="logo-text">
+          <h1>Tesla Canvas <span>Streamer</span></h1>
+          <span class="badge drive-badge">⚡ Drive-Mode Bypass Ready</span>
+        </div>
+      </div>
+
+      <nav class="nav-tabs">
+        <button class="nav-btn active" data-tab="search-tab">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+          Search YouTube
+        </button>
+        <button class="nav-btn" data-tab="library-tab">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>
+          Saved Videos <span class="library-count" id="libraryCount">0</span>
+        </button>
+      </nav>
+    </header>
+
+    <!-- Main Content Area -->
+    <main class="main-content">
+      <!-- 1. Search YouTube Tab -->
+      <section id="search-tab" class="tab-pane active">
+        <div class="search-hero">
+          <h2>Search YouTube Videos to Process for Drive Mode</h2>
+          <p>Choose resolution &amp; framerate to convert videos ahead of time onto your server. Played via HTML5 Canvas on your Tesla screen while driving.</p>
+          
+          <form id="searchForm" class="search-bar-form">
+            <div class="search-input-wrapper">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+              <input type="text" id="searchInput" placeholder="Search YouTube keywords or paste video URL (https://youtube.com/watch?v=...)" required>
+              <button type="submit" class="btn btn-primary">Search</button>
+            </div>
+          </form>
+
+          <div class="quick-suggestions">
+            <span>Quick Suggestions:</span>
+            <button class="chip-btn" data-query="Tesla FSD V12 Supervised">Tesla FSD V12</button>
+            <button class="chip-btn" data-query="MKBHD Tesla Cybertruck">MKBHD Cybertruck</button>
+            <button class="chip-btn" data-query="Lofi Hip Hop Radio Beats">Lofi Radio</button>
+            <button class="chip-btn" data-query="SpaceX Starship Launch">SpaceX Starship</button>
+          </div>
+        </div>
+
+        <div id="searchResultsSection" class="results-section hidden">
+          <div class="section-header">
+            <h3>Search Results</h3>
+            <span class="results-count" id="resultsCount">0 videos found</span>
+          </div>
+          <div class="grid-container" id="searchResultsGrid"></div>
+        </div>
+
+        <div id="searchLoader" class="loader-container hidden">
+          <div class="spinner"></div>
+          <p>Searching YouTube...</p>
+        </div>
+      </section>
+
+      <!-- 2. Tesla Saved Videos Library Tab -->
+      <section id="library-tab" class="tab-pane">
+        <!-- Active Processing Tasks Section (Inside Saved Videos Tab) -->
+        <div id="activeProcessingSection" class="processing-section hidden" style="margin-bottom: 32px;">
+          <div class="section-header">
+            <h3>⚙️ Videos Currently Processing</h3>
+            <p>Videos convert on the server ahead of time. Once complete, they appear in your Saved Videos list below.</p>
+          </div>
+          <div id="activeJobsContainer" class="jobs-list"></div>
+        </div>
+
+        <div class="section-header">
+          <h2>Tesla Saved Video Library</h2>
+          <p>Pre-processed video image sequences ready to play on demand.</p>
+        </div>
+
+        <div id="libraryEmptyState" class="empty-state">
+          <div class="empty-icon">📺</div>
+          <h3>Your Saved Videos Library is Empty</h3>
+          <p>Search for any YouTube video, select your preferred resolution, and save it to your library.</p>
+          <button class="btn btn-secondary" id="emptySearchBtn">Go to Search</button>
+        </div>
+
+        <div id="libraryGrid" class="grid-container"></div>
+      </section>
+
+      <!-- Resolution Selection Modal -->
+      <div id="resolutionModal" class="player-modal hidden">
+        <div class="player-overlay" id="resModalOverlayClose"></div>
+        <div class="player-content" style="max-width: 520px;">
+          <div class="drive-banner" style="background: rgba(0, 242, 254, 0.1); border-bottom-color: rgba(0, 242, 254, 0.25);">
+            <div class="drive-icon">⚙️</div>
+            <div class="drive-info">
+              <strong style="color: var(--accent-cyan);">Select Processing Resolution</strong>
+              <span>Choose resolution &amp; framerate for server pre-processing.</span>
+            </div>
+            <button class="close-modal-btn" id="closeResModalBtn">&times;</button>
+          </div>
+
+          <div style="padding: 24px; display: flex; flex-direction: column; gap: 20px;">
+            <div id="resVideoPreview" style="display: flex; gap: 14px; align-items: center; background: rgba(0, 0, 0, 0.3); padding: 12px; border-radius: var(--radius-md); border: 1px solid var(--border-color);">
+              <img id="resThumbImg" src="" alt="" style="width: 100px; aspect-ratio: 16/9; object-fit: cover; border-radius: 6px;">
+              <div style="overflow: hidden;">
+                <h4 id="resVideoTitle" style="font-size: 0.95rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Video Title</h4>
+                <span id="resVideoChannel" style="color: var(--text-muted); font-size: 0.82rem;">Channel</span>
+              </div>
+            </div>
+
+            <!-- Resolution Selector -->
+            <div style="display: flex; flex-direction: column; gap: 8px;">
+              <label style="font-weight: 600; font-size: 0.9rem;">Target Resolution:</label>
+              <div style="display: flex; flex-direction: column; gap: 8px;">
+                <label class="res-radio-label">
+                  <input type="radio" name="targetRes" value="360p" checked>
+                  <div class="radio-content">
+                    <strong>360p (640x360) — Recommended for Driving</strong>
+                    <span>Fastest download &amp; lowest memory usage on Tesla screen</span>
+                  </div>
+                </label>
+                <label class="res-radio-label">
+                  <input type="radio" name="targetRes" value="480p">
+                  <div class="radio-content">
+                    <strong>480p (854x480) — Medium Quality</strong>
+                    <span>Balanced detail and smooth canvas streaming</span>
+                  </div>
+                </label>
+                <label class="res-radio-label">
+                  <input type="radio" name="targetRes" value="720p">
+                  <div class="radio-content">
+                    <strong>720p (1280x720) — HD Canvas Quality</strong>
+                    <span>Crisper video, requires more storage space &amp; RAM</span>
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            <!-- Framerate Selector -->
+            <div style="display: flex; flex-direction: column; gap: 8px;">
+              <label style="font-weight: 600; font-size: 0.9rem;">Target Framerate (FPS):</label>
+              <select id="targetFpsSelect" class="speed-selector" style="width: 100%; padding: 10px; border-radius: var(--radius-sm); font-size: 0.9rem;">
+                <option value="24" selected>⚡ 24 FPS (Cinema Smooth — Recommended)</option>
+                <option value="12">🚀 12 FPS (Lightweight &amp; Low Bandwidth)</option>
+                <option value="30">🎬 30 FPS (Ultra High Motion Density)</option>
+              </select>
+            </div>
+
+            <div style="display: flex; gap: 12px; margin-top: 8px;">
+              <button class="btn btn-secondary" id="cancelResBtn" style="width: 40%;">Cancel</button>
+              <button class="btn btn-primary" id="confirmProcessBtn" style="width: 60%;">⚡ Save &amp; Process</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 4. Canvas Player Modal / View -->
+      <div id="playerModal" class="player-modal hidden">
+        <div class="player-overlay" id="playerOverlayClose"></div>
+        <div class="player-content">
+          <!-- Tesla Drive Compliance Warning Banner -->
+          <div class="drive-banner">
+            <div class="drive-icon">🚗</div>
+            <div class="drive-info">
+              <strong>Tesla Drive-Mode Active</strong>
+              <span>Rendering frame sequence on HTML5 <code>&lt;canvas&gt;</code> to bypass Tesla video block.</span>
+            </div>
+            <button class="close-modal-btn" id="closePlayerBtn">&times;</button>
+          </div>
+
+          <div class="canvas-wrapper" id="canvasWrapper">
+            <canvas id="teslaCanvas" width="640" height="360"></canvas>
+            
+            <!-- Canvas Big Play Overlay -->
+            <div id="canvasPlayOverlay" class="canvas-play-overlay">
+              <div class="play-circle">
+                <svg viewBox="0 0 24 24" width="36" height="36" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+              </div>
+            </div>
+
+            <!-- Full Browser Frame Pre-Cache Progress Screen -->
+            <div id="preCacheScreen" class="pre-cache-screen">
+              <div class="pre-cache-box">
+                <div class="pre-cache-icon">⚡</div>
+                <h3>Caching Frames in Browser Memory...</h3>
+                <p>Pre-loading image frames into browser cache to ensure 100% smooth, stutter-free playback on your Tesla canvas while driving.</p>
+
+                <div class="cache-progress-wrapper">
+                  <div class="cache-progress-info">
+                    <span id="cacheStageText">Loading frame 0 / 0...</span>
+                    <span id="cachePercentText" class="cache-percent">0%</span>
+                  </div>
+                  <div class="progress-bar-container">
+                    <div class="progress-bar-fill" id="cacheProgressBar" style="width: 0%;"></div>
+                  </div>
+                </div>
+
+                <div class="cache-options">
+                  <div class="mode-selector">
+                    <label>Pre-Cache Mode:</label>
+                    <select id="cacheModeSelect">
+                      <option value="full" selected>🔒 Full Cache (100% Smooth — Recommended)</option>
+                      <option value="smart">⚡ Quick Start (Cache 10s & Stream)</option>
+                    </select>
+                  </div>
+                  <button class="btn btn-primary" id="startPlayNowBtn" disabled>
+                    ▶️ Start Playing (Buffering...)
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Loading Spinner inside Canvas during seeking/buffering -->
+            <div id="canvasBuffering" class="canvas-buffering hidden">
+              <div class="spinner"></div>
+              <span id="bufferingText">Buffering Frames...</span>
+            </div>
+          </div>
+
+          <!-- Video Metadata & Sync Details -->
+          <div class="player-info-bar">
+            <div class="info-title">
+              <h3 id="playerTitle">Video Title</h3>
+              <span id="playerChannel" class="channel-text">Channel Name</span>
+            </div>
+            <div class="info-badges">
+              <span class="badge" id="playerResBadge">360p (640x360)</span>
+              <span class="badge" id="playerFpsBadge">12 FPS</span>
+              <span class="badge drive-badge" id="playerCacheBadge">Cache: 0%</span>
+              <span class="badge" id="playerFramesBadge">0 / 0 Frames</span>
+            </div>
+          </div>
+
+          <!-- Audio Element (Synchronized with Canvas) -->
+          <audio id="teslaAudio" preload="auto"></audio>
+
+          <!-- Custom Tesla Canvas Controls -->
+          <div class="canvas-controls">
+            <!-- Progress / Scrubber Bar with Buffer Track -->
+            <div class="scrubber-wrapper">
+              <div class="scrubber-buffer" id="scrubberBuffer"></div>
+              <div class="scrubber-progress" id="scrubberProgress"></div>
+              <input type="range" id="canvasScrubber" min="0" max="100" value="0" step="0.1">
+            </div>
+
+            <div class="controls-row">
+              <div class="controls-left">
+                <button class="ctrl-btn" id="playPauseBtn" title="Play/Pause (Space)">
+                  <svg id="playIcon" viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                  <svg id="pauseIcon" class="hidden" viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>
+                </button>
+                <button class="ctrl-btn" id="rewindBtn" title="Rewind 5s">
+                  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 19l-9-7 9-7v14z"></path><path d="M22 19l-9-7 9-7v14z"></path></svg>
+                </button>
+                <button class="ctrl-btn" id="forwardBtn" title="Forward 5s">
+                  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 19l9-7-9-7v14z"></path><path d="M2 19l9-7-9-7v14z"></path></svg>
+                </button>
+                <div class="time-display">
+                  <span id="currentTimeText">00:00</span> / <span id="totalTimeText">00:00</span>
+                </div>
+              </div>
+
+              <div class="controls-right">
+                <!-- Playback Speed -->
+                <div class="speed-selector">
+                  <label for="speedSelect">Speed:</label>
+                  <select id="speedSelect">
+                    <option value="0.5">0.5x</option>
+                    <option value="1.0" selected>1.0x</option>
+                    <option value="1.25">1.25x</option>
+                    <option value="1.5">1.5x</option>
+                    <option value="2.0">2.0x</option>
+                  </select>
+                </div>
+
+                <!-- Volume Control -->
+                <button class="ctrl-btn" id="muteBtn" title="Mute/Unmute">
+                  <svg id="volumeHighIcon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
+                  <svg id="volumeMuteIcon" class="hidden" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><line x1="23" y1="9" x2="17" y2="15"></line><line x1="17" y1="9" x2="23" y2="15"></line></svg>
+                </button>
+                <input type="range" id="volumeSlider" min="0" max="1" step="0.05" value="1" class="volume-slider">
+
+                <!-- Fullscreen Toggle -->
+                <button class="ctrl-btn" id="fullscreenBtn" title="Fullscreen Canvas">
+                  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path></svg>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="/js/app.js"></script>
+</body>
+</html>

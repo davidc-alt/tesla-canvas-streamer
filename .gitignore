@@ -1,0 +1,7 @@
+node_modules/
+storage/temp/
+storage/library/*
+!storage/library/.gitkeep
+bin/
+.env
+.DS_Store
