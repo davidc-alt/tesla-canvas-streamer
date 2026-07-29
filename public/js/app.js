@@ -474,33 +474,85 @@ document.addEventListener('DOMContentLoaded', () => {
   playerOverlayClose.addEventListener('click', closeCanvasPlayer);
 
   // ----------------------------------------------------
-  // High-Performance Non-Blocking Sliding-Window Preloader
+  // High-Performance Non-Blocking Preloader & Offline Caching Engine
   // ----------------------------------------------------
-  const PRELOAD_WINDOW = 120; // Keep 120 frames (~5 seconds) buffered ahead
+  const PRELOAD_WINDOW = 120; // Keep 120 frames buffered ahead in quick mode
   let activePreloadQueue = new Set();
+  let isFullOfflineCacheDone = false;
+  let cachedAudioObjectUrl = null;
+
+  async function cacheFullAudio(audioUrl) {
+    try {
+      const response = await fetch(audioUrl);
+      if (!response.ok) return;
+      const blob = await response.blob();
+      if (cachedAudioObjectUrl) {
+        URL.revokeObjectURL(cachedAudioObjectUrl);
+      }
+      cachedAudioObjectUrl = URL.createObjectURL(blob);
+      const currentTime = teslaAudio.currentTime || 0;
+      const isPlaying = !teslaAudio.paused;
+      teslaAudio.src = cachedAudioObjectUrl;
+      teslaAudio.currentTime = currentTime;
+      if (isPlaying) teslaAudio.play().catch(() => {});
+    } catch (e) {
+      console.warn('Audio offline pre-cache fallback:', e);
+    }
+  }
 
   function preloadWindowAhead(centerFrame) {
     if (!currentPlayingVideo) return;
 
     const totalFrames = currentPlayingVideo.frameCount;
-    const endFrame = Math.min(totalFrames, centerFrame + PRELOAD_WINDOW);
+    const isFullMode = !cacheModeSelect || cacheModeSelect.value === 'full';
 
-    // Prune old frames to conserve browser RAM (< centerFrame - 40)
-    const minKeepIndex = Math.max(1, centerFrame - 40);
-    for (const key of frameCache.keys()) {
-      if (key < minKeepIndex || key > endFrame + 60) {
-        frameCache.delete(key);
+    if (isFullMode) {
+      // Full Offline Mode: Pre-load ALL remaining frames (no pruning!)
+      fetchAllFramesInChunks();
+    } else {
+      // Smart Mode: Keep window ahead and prune old frames to conserve memory
+      const endFrame = Math.min(totalFrames, centerFrame + PRELOAD_WINDOW);
+      const minKeepIndex = Math.max(1, centerFrame - 40);
+      for (const key of frameCache.keys()) {
+        if (key < minKeepIndex || key > endFrame + 60) {
+          frameCache.delete(key);
+        }
+      }
+
+      for (let i = centerFrame; i <= endFrame; i++) {
+        if (!frameCache.has(i) && !activePreloadQueue.has(i)) {
+          activePreloadQueue.add(i);
+          fetchSingleFrame(i, currentPlayingVideo.id).then(() => {
+            activePreloadQueue.delete(i);
+            updateCacheProgressUI();
+          });
+        }
       }
     }
+  }
 
-    // High priority fetch for upcoming window
-    for (let i = centerFrame; i <= endFrame; i++) {
-      if (!frameCache.has(i) && !activePreloadQueue.has(i)) {
-        activePreloadQueue.add(i);
-        fetchSingleFrame(i, currentPlayingVideo.id).then(() => {
-          activePreloadQueue.delete(i);
-          updateCacheProgressUI();
-        });
+  async function fetchAllFramesInChunks() {
+    if (!currentPlayingVideo || isFullOfflineCacheDone) return;
+
+    const totalFrames = currentPlayingVideo.frameCount;
+    const batchSize = 10;
+
+    for (let i = 1; i <= totalFrames; i += batchSize) {
+      if (!currentPlayingVideo) break;
+      const batchPromises = [];
+      for (let j = i; j < Math.min(totalFrames + 1, i + batchSize); j++) {
+        if (!frameCache.has(j) && !activePreloadQueue.has(j)) {
+          activePreloadQueue.add(j);
+          batchPromises.push(
+            fetchSingleFrame(j, currentPlayingVideo.id).then(() => {
+              activePreloadQueue.delete(j);
+            })
+          );
+        }
+      }
+      if (batchPromises.length > 0) {
+        await Promise.all(batchPromises);
+        updateCacheProgressUI();
       }
     }
   }
@@ -528,14 +580,27 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!currentPlayingVideo) return;
     const totalFrames = currentPlayingVideo.frameCount;
     const cachedCount = frameCache.size;
-    const percent = Math.min(100, Math.round((cachedCount / Math.min(totalFrames, PRELOAD_WINDOW)) * 100));
+    const isFullMode = !cacheModeSelect || cacheModeSelect.value === 'full';
+    const targetCount = isFullMode ? totalFrames : Math.min(totalFrames, PRELOAD_WINDOW);
+    const percent = Math.min(100, Math.round((cachedCount / targetCount) * 100));
 
     cachePercentText.textContent = `${percent}%`;
     cacheProgressBar.style.width = `${percent}%`;
-    cacheStageText.textContent = `Buffered ${cachedCount} frames ahead`;
-    playerCacheBadge.textContent = `Cache: ${percent}%`;
+    
+    if (cachedCount >= totalFrames) {
+      isFullOfflineCacheDone = true;
+      cacheStageText.textContent = `✅ 100% Cached in Memory (Offline Ready)`;
+      playerCacheBadge.textContent = `🟢 Offline Ready`;
+      playerCacheBadge.style.backgroundColor = 'var(--accent-green)';
+    } else {
+      cacheStageText.textContent = isFullMode
+        ? `Caching offline: ${cachedCount} / ${totalFrames} frames`
+        : `Buffered ${cachedCount} frames ahead`;
+      playerCacheBadge.textContent = `Cache: ${percent}%`;
+      playerCacheBadge.style.backgroundColor = '';
+    }
 
-    // Calculate actual buffer percentage for scrubber bar
+    // Scrubber buffer calculation
     const maxFrameInCache = frameCache.size > 0 ? Math.max(...Array.from(frameCache.keys())) : 0;
     const fps = currentPlayingVideo.fps || 24;
     const bufferedSec = maxFrameInCache / fps;
@@ -544,19 +609,26 @@ document.addEventListener('DOMContentLoaded', () => {
     scrubberBuffer.style.width = `${bufferPercent}%`;
 
     // Enable play button as soon as initial 30 frames are loaded
-    if (cachedCount >= 30 || percent >= 50) {
+    if (cachedCount >= Math.min(30, totalFrames)) {
       startPlayNowBtn.disabled = false;
-      startPlayNowBtn.innerHTML = '▶️ Play Video';
+      startPlayNowBtn.innerHTML = '▶️ Start Playing (Buffering...)';
+      if (cachedCount >= totalFrames || percent >= 100) {
+        startPlayNowBtn.innerHTML = '▶️ Play Video (100% Offline Ready)';
+      }
     }
   }
 
   async function startFramePreCachePipeline(video) {
     frameCache.clear();
     activePreloadQueue.clear();
+    isFullOfflineCacheDone = false;
 
-    // Load initial 60 frames immediately
+    // Pre-cache full audio blob so audio works 100% offline
+    cacheFullAudio(video.audioUrl);
+
+    // Load initial 40 frames immediately
     const firstBatch = [];
-    for (let i = 1; i <= Math.min(60, video.frameCount); i++) {
+    for (let i = 1; i <= Math.min(40, video.frameCount); i++) {
       firstBatch.push(fetchSingleFrame(i, video.id));
     }
 
@@ -568,6 +640,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
     updateCacheProgressUI();
     preloadWindowAhead(1);
+  }
+
+  if (cacheModeSelect) {
+    cacheModeSelect.addEventListener('change', () => {
+      if (currentPlayingVideo) {
+        preloadWindowAhead(lastDrawnFrameIndex || 1);
+      }
+    });
   }
 
   // Handle "Start Playing" button on Pre-Cache screen
