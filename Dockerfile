@@ -24,6 +24,8 @@ COPY . .
 # Ensure storage directory exists
 RUN mkdir -p storage/library storage/temp
 
-EXPOSE 3000
+EXPOSE 7860
+ENV PORT=7860
 
 CMD ["node", "server.js"]
+
