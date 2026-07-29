@@ -116,7 +116,10 @@ const COMMON_YT_ARGS = [
 async function searchVideos(query, limit = 10) {
   const ytDlp = await getYtDlpPath();
   return new Promise((resolve, reject) => {
-    let args = [...COMMON_YT_ARGS];
+    let args = [
+      '--no-warnings',
+      '--no-check-certificates'
+    ];
     const isUrl = /^https?:\/\/(www\.)?(youtube\.com|youtu\.be)\//i.test(query.trim());
 
     if (isUrl) {
