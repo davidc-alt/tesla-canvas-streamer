@@ -31,7 +31,16 @@ function getLibrary() {
   try {
     if (!fs.existsSync(DB_FILE)) return [];
     const data = fs.readFileSync(DB_FILE, 'utf-8');
-    return JSON.parse(data);
+    const library = JSON.parse(data);
+
+    // Filter out video records whose files do not exist on server disk
+    return library.filter(video => {
+      if (!video || !video.id) return false;
+      const videoDir = path.join(LIBRARY_DIR, video.id);
+      const audioPath = path.join(videoDir, 'audio.mp3');
+      const framesDir = path.join(videoDir, 'frames');
+      return fs.existsSync(audioPath) && fs.existsSync(framesDir);
+    });
   } catch (err) {
     console.error('Error reading library database:', err);
     return [];

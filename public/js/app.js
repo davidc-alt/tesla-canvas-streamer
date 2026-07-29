@@ -562,6 +562,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
     await Promise.all(firstBatch);
 
+    // Check if initial frame loaded successfully
+    if (!frameCache.has(1) && video.frameCount > 0) {
+      cacheStageText.textContent = '⚠️ Video files missing from server disk. Please process video from search.';
+      cachePercentText.textContent = 'Error';
+      startPlayNowBtn.disabled = true;
+      startPlayNowBtn.innerHTML = '⚠️ Video Files Missing on Server';
+      return;
+    }
+
     if (frameCache.has(1)) {
       renderCanvasFrame(1);
     }

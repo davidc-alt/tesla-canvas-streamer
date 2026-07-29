@@ -103,30 +103,26 @@ function formatDuration(seconds) {
   return `${pad(m)}:${pad(s)}`;
 }
 
+const COMMON_YT_ARGS = [
+  '--extractor-args', 'youtube:player_client=ios,android,mweb',
+  '--user-agent', 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1',
+  '--no-warnings',
+  '--no-check-certificates'
+];
+
 /**
  * Search YouTube videos using yt-dlp
  */
 async function searchVideos(query, limit = 10) {
   const ytDlp = await getYtDlpPath();
   return new Promise((resolve, reject) => {
-    let args = [];
+    let args = [...COMMON_YT_ARGS];
     const isUrl = /^https?:\/\/(www\.)?(youtube\.com|youtu\.be)\//i.test(query.trim());
 
     if (isUrl) {
-      args = [
-        '--dump-single-json',
-        '--no-warnings',
-        '--no-check-certificates',
-        query.trim()
-      ];
+      args.push('--dump-single-json', query.trim());
     } else {
-      args = [
-        '--dump-single-json',
-        '--no-warnings',
-        '--no-check-certificates',
-        '--flat-playlist',
-        `ytsearch${limit}:${query}`
-      ];
+      args.push('--dump-single-json', '--flat-playlist', `ytsearch${limit}:${query.trim()}`);
     }
 
     const proc = spawn(ytDlp, args);
@@ -186,9 +182,8 @@ async function getVideoInfo(videoUrlOrId) {
 
   return new Promise((resolve, reject) => {
     const args = [
+      ...COMMON_YT_ARGS,
       '--dump-json',
-      '--no-warnings',
-      '--no-check-certificates',
       url
     ];
 
@@ -241,12 +236,10 @@ async function downloadVideo(videoUrlOrId, outputFilePath, maxHeight = 360, onPr
 
   return new Promise((resolve, reject) => {
     const args = [
-      '--extractor-args', 'youtube:player_client=android,web',
+      ...COMMON_YT_ARGS,
       '--ffmpeg-location', ffmpegPath,
       '-f', `bestvideo[height<=${h}]+bestaudio/best[height<=${h}]/b[height<=${h}]/best`,
       '--recode-video', 'mp4',
-      '--no-warnings',
-      '--no-check-certificates',
       '--newline',
       '-o', outputFilePath,
       url
