@@ -500,18 +500,37 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
+  function getCacheModeTargetFrames() {
+    if (!currentPlayingVideo) return 0;
+    const totalFrames = currentPlayingVideo.frameCount;
+    const fps = currentPlayingVideo.fps || 24;
+    const mode = cacheModeSelect ? cacheModeSelect.value : 'medium';
+
+    if (mode === 'full') {
+      return totalFrames;
+    } else if (mode === 'medium') {
+      // 5.5 minutes = 330 seconds
+      const mediumTarget = Math.round(fps * 330);
+      return Math.min(totalFrames, mediumTarget);
+    } else {
+      // quick mode = 30 seconds
+      const quickTarget = Math.round(fps * 30);
+      return Math.min(totalFrames, quickTarget);
+    }
+  }
+
   function preloadWindowAhead(centerFrame) {
     if (!currentPlayingVideo) return;
 
     const totalFrames = currentPlayingVideo.frameCount;
-    const isFullMode = !cacheModeSelect || cacheModeSelect.value === 'full';
+    const targetCount = getCacheModeTargetFrames();
+    const mode = cacheModeSelect ? cacheModeSelect.value : 'medium';
 
-    if (isFullMode) {
-      // Full Offline Mode: Pre-load ALL remaining frames (no pruning!)
-      fetchAllFramesInChunks();
+    if (mode === 'full' || mode === 'medium') {
+      fetchFramesUpToTarget(targetCount);
     } else {
-      // Smart Mode: Keep window ahead and prune old frames to conserve memory
-      const endFrame = Math.min(totalFrames, centerFrame + PRELOAD_WINDOW);
+      // Quick Mode: Keep 120 frame window ahead and prune old frames
+      const endFrame = Math.min(totalFrames, centerFrame + 120);
       const minKeepIndex = Math.max(1, centerFrame - 40);
       for (const key of frameCache.keys()) {
         if (key < minKeepIndex || key > endFrame + 60) {
@@ -531,11 +550,11 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  async function fetchAllFramesInChunks() {
+  async function fetchFramesUpToTarget(targetCount) {
     if (!currentPlayingVideo || isFullOfflineCacheDone) return;
 
-    const totalFrames = currentPlayingVideo.frameCount;
-    const batchSize = 10;
+    const totalFrames = Math.min(currentPlayingVideo.frameCount, targetCount);
+    const batchSize = 12;
 
     for (let i = 1; i <= totalFrames; i += batchSize) {
       if (!currentPlayingVideo) break;
@@ -580,22 +599,34 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!currentPlayingVideo) return;
     const totalFrames = currentPlayingVideo.frameCount;
     const cachedCount = frameCache.size;
-    const isFullMode = !cacheModeSelect || cacheModeSelect.value === 'full';
-    const targetCount = isFullMode ? totalFrames : Math.min(totalFrames, PRELOAD_WINDOW);
+    const targetCount = getCacheModeTargetFrames();
+    const mode = cacheModeSelect ? cacheModeSelect.value : 'medium';
     const percent = Math.min(100, Math.round((cachedCount / targetCount) * 100));
 
     cachePercentText.textContent = `${percent}%`;
     cacheProgressBar.style.width = `${percent}%`;
     
-    if (cachedCount >= totalFrames) {
-      isFullOfflineCacheDone = true;
-      cacheStageText.textContent = `✅ 100% Cached in Memory (Offline Ready)`;
-      playerCacheBadge.textContent = `🟢 Offline Ready`;
+    if (cachedCount >= targetCount) {
+      if (mode === 'full' || cachedCount >= totalFrames) {
+        isFullOfflineCacheDone = true;
+        cacheStageText.textContent = `✅ 100% Full Video Cached in Memory (Offline Ready)`;
+        playerCacheBadge.textContent = `🟢 Offline Ready`;
+      } else if (mode === 'medium') {
+        cacheStageText.textContent = `✅ 5-6 Min Buffer Cached in Memory (Ready for Driving)`;
+        playerCacheBadge.textContent = `🟢 5.5m Buffer Ready`;
+      } else {
+        cacheStageText.textContent = `⚡ 30s Quick Buffer Ready`;
+        playerCacheBadge.textContent = `⚡ 30s Ready`;
+      }
       playerCacheBadge.style.backgroundColor = 'var(--accent-green)';
     } else {
-      cacheStageText.textContent = isFullMode
-        ? `Caching offline: ${cachedCount} / ${totalFrames} frames`
-        : `Buffered ${cachedCount} frames ahead`;
+      if (mode === 'medium') {
+        cacheStageText.textContent = `Caching 5.5m buffer: ${cachedCount} / ${targetCount} frames`;
+      } else if (mode === 'full') {
+        cacheStageText.textContent = `Caching full video: ${cachedCount} / ${totalFrames} frames`;
+      } else {
+        cacheStageText.textContent = `Buffered ${cachedCount} / ${targetCount} frames ahead`;
+      }
       playerCacheBadge.textContent = `Cache: ${percent}%`;
       playerCacheBadge.style.backgroundColor = '';
     }
@@ -611,9 +642,12 @@ document.addEventListener('DOMContentLoaded', () => {
     // Enable play button as soon as initial 30 frames are loaded
     if (cachedCount >= Math.min(30, totalFrames)) {
       startPlayNowBtn.disabled = false;
-      startPlayNowBtn.innerHTML = '▶️ Start Playing (Buffering...)';
-      if (cachedCount >= totalFrames || percent >= 100) {
-        startPlayNowBtn.innerHTML = '▶️ Play Video (100% Offline Ready)';
+      if (cachedCount >= targetCount || percent >= 100) {
+        startPlayNowBtn.innerHTML = mode === 'medium' 
+          ? '▶️ Play Video (5.5 Min Buffer Ready)'
+          : mode === 'full' ? '▶️ Play Video (100% Offline Ready)' : '▶️ Play Video';
+      } else {
+        startPlayNowBtn.innerHTML = '▶️ Start Playing (Buffering...)';
       }
     }
   }
