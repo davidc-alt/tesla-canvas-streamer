@@ -104,6 +104,20 @@ function formatDuration(seconds) {
 }
 
 /**
+ * Returns --cookies argument if storage/cookies.txt exists
+ */
+function getCookieArgs() {
+  const STORAGE_DIR = process.env.STORAGE_DIR
+    ? path.resolve(process.env.STORAGE_DIR)
+    : path.join(__dirname, '..', 'storage');
+  const cookiesPath = path.join(STORAGE_DIR, 'cookies.txt');
+  if (fs.existsSync(cookiesPath)) {
+    return ['--cookies', cookiesPath];
+  }
+  return [];
+}
+
+/**
  * Search YouTube videos using yt-dlp
  */
 async function searchVideos(query, limit = 10) {
@@ -113,6 +127,7 @@ async function searchVideos(query, limit = 10) {
     const isUrl = /^https?:\/\/(www\.)?(youtube\.com|youtu\.be)\//i.test(query.trim());
 
     const commonArgs = [
+      ...getCookieArgs(),
       '--extractor-args', 'youtube:player_client=android,web',
       '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
       '--no-warnings',
@@ -191,6 +206,7 @@ async function getVideoInfo(videoUrlOrId) {
 
   return new Promise((resolve, reject) => {
     const args = [
+      ...getCookieArgs(),
       '--extractor-args', 'youtube:player_client=android,web',
       '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
       '--dump-json',
@@ -248,6 +264,7 @@ async function downloadVideo(videoUrlOrId, outputFilePath, maxHeight = 360, onPr
 
   return new Promise((resolve, reject) => {
     const args = [
+      ...getCookieArgs(),
       '--extractor-args', 'youtube:player_client=android,web',
       '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
       '--ffmpeg-location', ffmpegPath,
