@@ -7,23 +7,42 @@ set -e
 
 echo "🚀 Starting Tesla Canvas Streamer Server Setup on Oracle Cloud..."
 
-# 1. System updates & package installation
-sudo apt-get update -y
-sudo apt-get install -y curl git ca-certificates gnupg lsb-release iptables-persistent ufw
+# 1. Detect Package Manager & Install Dependencies
+if command -v apt-get &> /dev/null; then
+    echo "📦 Detected Debian/Ubuntu system..."
+    sudo apt-get update -y
+    sudo apt-get install -y curl git ca-certificates gnupg lsb-release iptables-persistent ufw || true
+elif command -v dnf &> /dev/null; then
+    echo "📦 Detected Oracle Linux / RHEL system..."
+    sudo dnf update -y
+    sudo dnf install -y curl git iptables-services || true
+elif command -v yum &> /dev/null; then
+    echo "📦 Detected CentOS / RHEL system..."
+    sudo yum update -y
+    sudo yum install -y curl git iptables-services || true
+fi
 
 # 2. Install Docker if not already installed
 if ! command -v docker &> /dev/null; then
     echo "📦 Installing Docker..."
     curl -fsSL https://get.docker.com -o get-docker.sh
     sudo sh get-docker.sh
-    sudo usermod -aG docker $USER
+    sudo usermod -aG docker $USER || true
     rm get-docker.sh
 fi
 
-# 3. Open Firewall Port 3000 in Ubuntu iptables
+# 3. Open Firewall Port 3000 in OS Firewall
 echo "🔓 Opening Port 3000 in OS Firewall..."
-sudo iptables -I INPUT 6 -m state --state NEW -p tcp --dport 3000 -j ACCEPT
-sudo netfilter-persistent save
+if command -v iptables &> /dev/null; then
+    sudo iptables -I INPUT 6 -m state --state NEW -p tcp --dport 3000 -j ACCEPT || sudo iptables -I INPUT 1 -p tcp --dport 3000 -j ACCEPT
+    if command -v netfilter-persistent &> /dev/null; then
+        sudo netfilter-persistent save || true
+    fi
+fi
+if command -v firewall-cmd &> /dev/null; then
+    sudo firewall-cmd --zone=public --add-port=3000/tcp --permanent || true
+    sudo firewall-cmd --reload || true
+fi
 
 # 4. Clone or update repository
 APP_DIR="$HOME/tesla-canvas-streamer"
