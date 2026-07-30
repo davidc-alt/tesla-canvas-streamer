@@ -779,7 +779,15 @@ document.addEventListener('DOMContentLoaded', () => {
         img.src = `/api/library/${videoId}/frames/frame_${frameNumStr}.jpg`;
       }
 
+      // 5 second safety timeout to prevent hanging fetches
+      const timeoutId = setTimeout(() => {
+        img.onload = null;
+        img.onerror = null;
+        resolve(null);
+      }, 5000);
+
       img.onload = () => {
+        clearTimeout(timeoutId);
         frameCache.set(frameIndex, img);
         if (img.decode) {
           img.decode().catch(() => {});
@@ -787,6 +795,7 @@ document.addEventListener('DOMContentLoaded', () => {
         resolve(img);
       };
       img.onerror = () => {
+        clearTimeout(timeoutId);
         resolve(null);
       };
     });
@@ -795,19 +804,23 @@ document.addEventListener('DOMContentLoaded', () => {
   function processFetchQueue() {
     while (activeFetchCount < MAX_CONCURRENT_FETCHES && fetchQueue.length > 0) {
       const frameIndex = fetchQueue.shift();
-      pendingFetchSet.delete(frameIndex);
 
-      if (frameCache.has(frameIndex)) continue;
+      if (frameCache.has(frameIndex)) {
+        pendingFetchSet.delete(frameIndex);
+        continue;
+      }
 
       activeFetchCount++;
       fetchSingleFrame(frameIndex)
         .then(() => {
           activeFetchCount--;
+          pendingFetchSet.delete(frameIndex); // ONLY remove from pending set when HTTP request finishes!
           updateCacheProgressUI();
           processFetchQueue();
         })
         .catch(() => {
           activeFetchCount--;
+          pendingFetchSet.delete(frameIndex);
           processFetchQueue();
         });
     }
@@ -818,7 +831,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const now = Date.now();
     // Throttle check to avoid main thread churn
-    if (centerFrame === lastPreloadCenterFrame && now - lastPreloadTimestamp < 200) {
+    if (centerFrame === lastPreloadCenterFrame && now - lastPreloadTimestamp < 150) {
       return;
     }
     lastPreloadCenterFrame = centerFrame;
@@ -826,7 +839,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const totalFrames = currentPlayingVideo.frameCount;
     const minKeep = Math.max(1, centerFrame - WINDOW_BEHIND);
-    const maxKeep = Math.min(totalFrames, centerFrame + WINDOW_AHEAD + 40);
+    const maxKeep = Math.min(totalFrames, centerFrame + WINDOW_AHEAD + 30);
 
     // Evict old frames to prevent GPU memory bloat & stutter
     for (const key of frameCache.keys()) {
@@ -839,6 +852,12 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         frameCache.delete(key);
       }
+    }
+
+    // Urgent Priority: If center frame is missing, prioritize it immediately
+    if (!frameCache.has(centerFrame) && !pendingFetchSet.has(centerFrame)) {
+      pendingFetchSet.add(centerFrame);
+      fetchQueue.unshift(centerFrame);
     }
 
     // Queue upcoming window frames
@@ -924,7 +943,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Fallback: If exact frame is loading, search backwards for closest loaded frame
     if (!img || !img.complete) {
-      for (let offset = 1; offset <= 10; offset++) {
+      for (let offset = 1; offset <= 30; offset++) {
         const prevImg = frameCache.get(targetFrame - offset);
         if (prevImg && prevImg.complete) {
           img = prevImg;
