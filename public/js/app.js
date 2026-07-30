@@ -515,20 +515,33 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
           }
           const blob = await response.blob();
-          let bitmap;
-          if (window.createImageBitmap) {
-            bitmap = await createImageBitmap(blob);
-          } else {
+          let bitmap = null;
+          try {
+            if (window.createImageBitmap) {
+              bitmap = await createImageBitmap(blob);
+            }
+          } catch (e) {
+            bitmap = null;
+          }
+
+          if (!bitmap) {
             bitmap = await new Promise((res) => {
               const img = new Image();
-              img.src = URL.createObjectURL(blob);
-              img.onload = () => res(img);
-              img.onerror = () => res(null);
+              const objectUrl = URL.createObjectURL(blob);
+              img.src = objectUrl;
+              img.onload = () => {
+                res(img);
+              };
+              img.onerror = () => {
+                res(null);
+              };
             });
           }
+
           if (bitmap) {
             frameCache.set(frameIndex, bitmap);
           }
+          updateCacheProgressUI();
           resolve(bitmap);
         } catch (e) {
           resolve(null);
@@ -676,14 +689,18 @@ document.addEventListener('DOMContentLoaded', () => {
     activePreloadQueue.clear();
     isFullOfflineCacheDone = false;
 
-    // Pre-cache full audio blob so audio works 100% offline
-    cacheFullAudio(video.audioUrl);
-
-    // Load initial 40 frames immediately
+    // Load initial 40 frames immediately with top priority
     const firstBatch = [];
     for (let i = 1; i <= Math.min(40, video.frameCount); i++) {
-      firstBatch.push(fetchSingleFrame(i));
+      firstBatch.push(fetchSingleFrame(i, video.id));
     }
+
+    // Pre-cache audio blob in background after starting frame fetches
+    setTimeout(() => {
+      if (currentPlayingVideo && currentPlayingVideo.id === video.id) {
+        cacheFullAudio(video.audioUrl);
+      }
+    }, 100);
 
     await Promise.all(firstBatch);
 
