@@ -664,7 +664,10 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Scrubber buffer calculation
-    const maxFrameInCache = frameCache.size > 0 ? Math.max(...Array.from(frameCache.keys())) : 0;
+    let maxFrameInCache = 0;
+    for (const key of frameCache.keys()) {
+      if (key > maxFrameInCache) maxFrameInCache = key;
+    }
     const fps = currentPlayingVideo.fps || 24;
     const bufferedSec = maxFrameInCache / fps;
     const duration = teslaAudio.duration || currentPlayingVideo.duration || 1;
