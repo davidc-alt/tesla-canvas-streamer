@@ -189,10 +189,97 @@
           <div class="canvas-wrapper" id="canvasWrapper">
             <canvas id="teslaCanvas" width="640" height="360"></canvas>
             
-            <!-- Canvas Big Play Overlay -->
-            <div id="canvasPlayOverlay" class="canvas-play-overlay">
-              <div class="play-circle">
-                <svg viewBox="0 0 24 24" width="36" height="36" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+            <!-- Touch & Fullscreen Controls Overlay (Touchscreen Friendly for Tesla) -->
+            <div id="canvasTouchOverlay" class="canvas-touch-overlay">
+              <!-- Top Bar: Title & Minimize / Close Controls -->
+              <div class="touch-top-bar">
+                <div class="touch-title-info">
+                  <span id="touchPlayerTitle" class="touch-title">Video Title</span>
+                  <span id="touchPlayerChannel" class="touch-channel">Channel Name</span>
+                </div>
+                <div class="touch-top-actions">
+                  <button class="touch-btn minimize-btn" id="exitFullscreenBtn" title="Minimize Video / Exit Fullscreen">
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"></path>
+                    </svg>
+                    <span>Minimize</span>
+                  </button>
+                  <button class="touch-btn touch-close-btn" id="touchClosePlayerBtn" title="Close Video Player">
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                      <line x1="18" y1="6" x2="6" y2="18"></line>
+                      <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+
+              <!-- Center Big Touch Controls (Play/Pause, Rewind, Forward) -->
+              <div class="touch-center-controls">
+                <button class="touch-seek-btn" id="touchRewindBtn" title="Rewind 10s">
+                  <svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 19l-9-7 9-7v14z"></path><path d="M22 19l-9-7 9-7v14z"></path></svg>
+                  <span>-10s</span>
+                </button>
+
+                <button class="touch-play-btn" id="touchPlayPauseBtn" title="Play/Pause Video">
+                  <svg id="touchPlayIcon" viewBox="0 0 24 24" width="44" height="44" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                  <svg id="touchPauseIcon" class="hidden" viewBox="0 0 24 24" width="44" height="44" fill="currentColor"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>
+                </button>
+
+                <button class="touch-seek-btn" id="touchForwardBtn" title="Forward 10s">
+                  <svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 19l9-7-9-7v14z"></path><path d="M2 19l9-7-9-7v14z"></path></svg>
+                  <span>+10s</span>
+                </button>
+              </div>
+
+              <!-- Bottom Controls Bar (Scrubber & Player Actions) -->
+              <div class="touch-bottom-bar">
+                <div class="scrubber-wrapper">
+                  <div class="scrubber-buffer" id="scrubberBuffer"></div>
+                  <div class="scrubber-progress" id="scrubberProgress"></div>
+                  <input type="range" id="canvasScrubber" min="0" max="100" value="0" step="0.1">
+                </div>
+
+                <div class="controls-row">
+                  <div class="controls-left">
+                    <button class="ctrl-btn" id="playPauseBtn" title="Play/Pause (Space)">
+                      <svg id="playIcon" viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                      <svg id="pauseIcon" class="hidden" viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>
+                    </button>
+                    <button class="ctrl-btn" id="rewindBtn" title="Rewind 5s">
+                      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 19l-9-7 9-7v14z"></path><path d="M22 19l-9-7 9-7v14z"></path></svg>
+                    </button>
+                    <button class="ctrl-btn" id="forwardBtn" title="Forward 5s">
+                      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 19l9-7-9-7v14z"></path><path d="M2 19l9-7-9-7v14z"></path></svg>
+                    </button>
+                    <div class="time-display">
+                      <span id="currentTimeText">00:00</span> / <span id="totalTimeText">00:00</span>
+                    </div>
+                  </div>
+
+                  <div class="controls-right">
+                    <div class="speed-selector">
+                      <label for="speedSelect">Speed:</label>
+                      <select id="speedSelect">
+                        <option value="0.5">0.5x</option>
+                        <option value="1.0" selected>1.0x</option>
+                        <option value="1.25">1.25x</option>
+                        <option value="1.5">1.5x</option>
+                        <option value="2.0">2.0x</option>
+                      </select>
+                    </div>
+
+                    <button class="ctrl-btn" id="muteBtn" title="Mute/Unmute">
+                      <svg id="volumeHighIcon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
+                      <svg id="volumeMuteIcon" class="hidden" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><line x1="23" y1="9" x2="17" y2="15"></line><line x1="17" y1="9" x2="23" y2="15"></line></svg>
+                    </button>
+                    <input type="range" id="volumeSlider" min="0" max="1" step="0.05" value="1" class="volume-slider">
+
+                    <button class="ctrl-btn" id="fullscreenBtn" title="Toggle Fullscreen">
+                      <svg id="fullscreenExpandIcon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path></svg>
+                      <svg id="fullscreenCompressIcon" class="hidden" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"></path></svg>
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -200,8 +287,8 @@
             <div id="preCacheScreen" class="pre-cache-screen">
               <div class="pre-cache-box">
                 <div class="pre-cache-icon">⚡</div>
-                <h3>Caching Frames in Browser Memory...</h3>
-                <p>Pre-loading image frames into browser cache to ensure 100% smooth, stutter-free playback on your Tesla canvas while driving.</p>
+                <h3>Buffering Video Stream...</h3>
+                <p>Initial frames pre-loading into browser buffer for smooth, stutter-free playback on your Tesla canvas while driving.</p>
 
                 <div class="cache-progress-wrapper">
                   <div class="cache-progress-info">
@@ -217,9 +304,9 @@
                   <div class="mode-selector">
                     <label>Pre-Cache Mode:</label>
                     <select id="cacheModeSelect">
-                      <option value="medium" selected>⏱️ Medium Buffer (Cache 5-6 Mins — Recommended for Driving)</option>
-                      <option value="full">🔒 Full Video Cache (Pre-load 100% of Video)</option>
-                      <option value="quick">⚡ Quick Start (Cache 30 Seconds & Stream)</option>
+                      <option value="medium" selected>⚡ Smart Sliding Window (Recommended for Driving)</option>
+                      <option value="full">🔒 High Buffer Priority</option>
+                      <option value="quick">🚀 Quick Start (Instant Play)</option>
                     </select>
                   </div>
                   <button class="btn btn-primary" id="startPlayNowBtn" disabled>
@@ -252,60 +339,6 @@
 
           <!-- Audio Element (Synchronized with Canvas) -->
           <audio id="teslaAudio" preload="auto"></audio>
-
-          <!-- Custom Tesla Canvas Controls -->
-          <div class="canvas-controls">
-            <!-- Progress / Scrubber Bar with Buffer Track -->
-            <div class="scrubber-wrapper">
-              <div class="scrubber-buffer" id="scrubberBuffer"></div>
-              <div class="scrubber-progress" id="scrubberProgress"></div>
-              <input type="range" id="canvasScrubber" min="0" max="100" value="0" step="0.1">
-            </div>
-
-            <div class="controls-row">
-              <div class="controls-left">
-                <button class="ctrl-btn" id="playPauseBtn" title="Play/Pause (Space)">
-                  <svg id="playIcon" viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-                  <svg id="pauseIcon" class="hidden" viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>
-                </button>
-                <button class="ctrl-btn" id="rewindBtn" title="Rewind 5s">
-                  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 19l-9-7 9-7v14z"></path><path d="M22 19l-9-7 9-7v14z"></path></svg>
-                </button>
-                <button class="ctrl-btn" id="forwardBtn" title="Forward 5s">
-                  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 19l9-7-9-7v14z"></path><path d="M2 19l9-7-9-7v14z"></path></svg>
-                </button>
-                <div class="time-display">
-                  <span id="currentTimeText">00:00</span> / <span id="totalTimeText">00:00</span>
-                </div>
-              </div>
-
-              <div class="controls-right">
-                <!-- Playback Speed -->
-                <div class="speed-selector">
-                  <label for="speedSelect">Speed:</label>
-                  <select id="speedSelect">
-                    <option value="0.5">0.5x</option>
-                    <option value="1.0" selected>1.0x</option>
-                    <option value="1.25">1.25x</option>
-                    <option value="1.5">1.5x</option>
-                    <option value="2.0">2.0x</option>
-                  </select>
-                </div>
-
-                <!-- Volume Control -->
-                <button class="ctrl-btn" id="muteBtn" title="Mute/Unmute">
-                  <svg id="volumeHighIcon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
-                  <svg id="volumeMuteIcon" class="hidden" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><line x1="23" y1="9" x2="17" y2="15"></line><line x1="17" y1="9" x2="23" y2="15"></line></svg>
-                </button>
-                <input type="range" id="volumeSlider" min="0" max="1" step="0.05" value="1" class="volume-slider">
-
-                <!-- Fullscreen Toggle -->
-                <button class="ctrl-btn" id="fullscreenBtn" title="Fullscreen Canvas">
-                  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path></svg>
-                </button>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
     </main>

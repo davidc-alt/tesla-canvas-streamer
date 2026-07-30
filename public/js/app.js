@@ -412,12 +412,37 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // Pre-Cache Controller Variables
-  let preCacheAbortController = null;
+  // ----------------------------------------------------
+  // 5. Synchronized HTML5 Canvas Video Player & Sliding Window Engine
+  // ----------------------------------------------------
+  // Touch & Fullscreen Overlay Elements
+  const canvasTouchOverlay = document.getElementById('canvasTouchOverlay');
+  const touchPlayerTitle = document.getElementById('touchPlayerTitle');
+  const touchPlayerChannel = document.getElementById('touchPlayerChannel');
+  const exitFullscreenBtn = document.getElementById('exitFullscreenBtn');
+  const touchClosePlayerBtn = document.getElementById('touchClosePlayerBtn');
+  const touchPlayPauseBtn = document.getElementById('touchPlayPauseBtn');
+  const touchPlayIcon = document.getElementById('touchPlayIcon');
+  const touchPauseIcon = document.getElementById('touchPauseIcon');
+  const touchRewindBtn = document.getElementById('touchRewindBtn');
+  const touchForwardBtn = document.getElementById('touchForwardBtn');
+  const fullscreenExpandIcon = document.getElementById('fullscreenExpandIcon');
+  const fullscreenCompressIcon = document.getElementById('fullscreenCompressIcon');
 
-  // ----------------------------------------------------
-  // 5. Synchronized HTML5 Canvas Video Player & Pre-Cache Engine
-  // ----------------------------------------------------
+  // Preloading & Memory Management Constants
+  const WINDOW_BEHIND = 40;  // Keep 40 frames behind playhead (~1.5s)
+  const WINDOW_AHEAD = 180;  // Keep 180 frames ahead of playhead (~7.5s buffer)
+  const MAX_CONCURRENT_FETCHES = 6; // Bounded concurrency queue to prevent network choking
+
+  let activeFetchCount = 0;
+  let fetchQueue = [];
+  let pendingFetchSet = new Set();
+  let preCacheAbortController = null;
+  let lastPreloadCenterFrame = -1;
+  let lastPreloadTimestamp = 0;
+  let controlsTimeout = null;
+  let cachedAudioObjectUrl = null;
+
   async function openCanvasPlayer(videoId) {
     try {
       const response = await fetch(`/api/library/${videoId}`);
@@ -425,7 +450,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const video = await response.json();
 
       currentPlayingVideo = video;
-      frameCache.clear();
+      clearFrameCacheMemory();
 
       // Set Canvas Dimensions
       teslaCanvas.width = video.width || 640;
@@ -434,6 +459,8 @@ document.addEventListener('DOMContentLoaded', () => {
       // Set Metadata UI
       playerTitle.textContent = video.title;
       playerChannel.textContent = video.channel;
+      if (touchPlayerTitle) touchPlayerTitle.textContent = video.title;
+      if (touchPlayerChannel) touchPlayerChannel.textContent = video.channel;
       playerResBadge.textContent = video.resolution || '360p';
       playerFpsBadge.textContent = `${video.fps} FPS`;
       playerFramesBadge.textContent = `0 / ${video.frameCount} Frames`;
@@ -448,11 +475,11 @@ document.addEventListener('DOMContentLoaded', () => {
       // Show Modal & Pre-Cache Screen
       playerModal.classList.remove('hidden');
       preCacheScreen.classList.remove('hidden');
-      canvasPlayOverlay.classList.add('hidden');
+      showControls();
       startPlayNowBtn.disabled = true;
       startPlayNowBtn.innerHTML = '▶️ Start Playing (Buffering...)';
 
-      // Start Browser Frame Pre-Caching
+      // Start Browser Frame Pre-Caching Pipeline
       startFramePreCachePipeline(video);
 
     } catch (err) {
@@ -460,27 +487,130 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
+  function clearFrameCacheMemory() {
+    for (const [key, img] of frameCache.entries()) {
+      if (img) {
+        img.onload = null;
+        img.onerror = null;
+        img.src = '';
+      }
+    }
+    frameCache.clear();
+    pendingFetchSet.clear();
+    fetchQueue = [];
+    activeFetchCount = 0;
+    lastDrawnFrameIndex = -1;
+    lastPreloadCenterFrame = -1;
+  }
+
   function closeCanvasPlayer() {
-    isCachingActive = false;
+    exitFullscreen();
     if (preCacheAbortController) preCacheAbortController.abort();
     teslaAudio.pause();
     if (animFrameId) cancelAnimationFrame(animFrameId);
     playerModal.classList.add('hidden');
-    frameCache.clear();
+    clearFrameCacheMemory();
     currentPlayingVideo = null;
+    if (controlsTimeout) clearTimeout(controlsTimeout);
   }
 
   closePlayerBtn.addEventListener('click', closeCanvasPlayer);
+  if (touchClosePlayerBtn) touchClosePlayerBtn.addEventListener('click', closeCanvasPlayer);
   playerOverlayClose.addEventListener('click', closeCanvasPlayer);
 
   // ----------------------------------------------------
-  // High-Performance Non-Blocking Preloader & Offline Caching Engine
+  // Fullscreen & Minimize Touch Overlay Management
   // ----------------------------------------------------
-  const PRELOAD_WINDOW = 120; // Keep 120 frames buffered ahead in quick mode
-  let activePreloadQueue = new Set();
-  let isFullOfflineCacheDone = false;
-  let cachedAudioObjectUrl = null;
+  function toggleFullscreen() {
+    const isFS = document.fullscreenElement || document.webkitFullscreenElement || canvasWrapper.classList.contains('is-fullscreen');
+    if (isFS) {
+      exitFullscreen();
+    } else {
+      enterFullscreen();
+    }
+  }
 
+  function enterFullscreen() {
+    canvasWrapper.classList.add('is-fullscreen');
+    if (canvasWrapper.requestFullscreen) {
+      canvasWrapper.requestFullscreen().catch(() => {});
+    } else if (canvasWrapper.webkitRequestFullscreen) {
+      canvasWrapper.webkitRequestFullscreen().catch(() => {});
+    }
+    updateFullscreenUI(true);
+  }
+
+  function exitFullscreen() {
+    canvasWrapper.classList.remove('is-fullscreen');
+    if (document.fullscreenElement || document.webkitFullscreenElement) {
+      if (document.exitFullscreen) {
+        document.exitFullscreen().catch(() => {});
+      } else if (document.webkitExitFullscreen) {
+        document.webkitExitFullscreen().catch(() => {});
+      }
+    }
+    updateFullscreenUI(false);
+  }
+
+  function updateFullscreenUI(isFullscreenActive) {
+    if (fullscreenExpandIcon && fullscreenCompressIcon) {
+      if (isFullscreenActive) {
+        fullscreenExpandIcon.classList.add('hidden');
+        fullscreenCompressIcon.classList.remove('hidden');
+      } else {
+        fullscreenExpandIcon.classList.remove('hidden');
+        fullscreenCompressIcon.classList.add('hidden');
+      }
+    }
+    showControls();
+  }
+
+  if (fullscreenBtn) fullscreenBtn.addEventListener('click', toggleFullscreen);
+  if (exitFullscreenBtn) exitFullscreenBtn.addEventListener('click', exitFullscreen);
+
+  document.addEventListener('fullscreenchange', () => {
+    const isFS = !!(document.fullscreenElement || document.webkitFullscreenElement);
+    if (!isFS) canvasWrapper.classList.remove('is-fullscreen');
+    updateFullscreenUI(isFS);
+  });
+  document.addEventListener('webkitfullscreenchange', () => {
+    const isFS = !!(document.fullscreenElement || document.webkitFullscreenElement);
+    if (!isFS) canvasWrapper.classList.remove('is-fullscreen');
+    updateFullscreenUI(isFS);
+  });
+
+  // Touch & Auto-Hide Control Overlay
+  function showControls() {
+    if (canvasTouchOverlay) {
+      canvasTouchOverlay.classList.remove('controls-hidden');
+    }
+    if (controlsTimeout) clearTimeout(controlsTimeout);
+
+    if (!teslaAudio.paused) {
+      controlsTimeout = setTimeout(() => {
+        if (!teslaAudio.paused && canvasTouchOverlay) {
+          canvasTouchOverlay.classList.add('controls-hidden');
+        }
+      }, 3500);
+    }
+  }
+
+  function hideControls() {
+    if (!teslaAudio.paused && canvasTouchOverlay) {
+      canvasTouchOverlay.classList.add('controls-hidden');
+    }
+  }
+
+  if (canvasWrapper) {
+    canvasWrapper.addEventListener('mousemove', showControls);
+    canvasWrapper.addEventListener('touchstart', showControls, { passive: true });
+    canvasWrapper.addEventListener('pointerdown', showControls, { passive: true });
+    canvasWrapper.addEventListener('dblclick', toggleFullscreen);
+  }
+
+  // ----------------------------------------------------
+  // High-Performance Sliding Window Preloader Engine
+  // ----------------------------------------------------
   async function cacheFullAudio(audioUrl) {
     try {
       const response = await fetch(audioUrl);
@@ -500,82 +630,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  function getCacheModeTargetFrames() {
-    if (!currentPlayingVideo) return 0;
-    const totalFrames = currentPlayingVideo.frameCount;
-    const fps = currentPlayingVideo.fps || 24;
-    const mode = cacheModeSelect ? cacheModeSelect.value : 'medium';
-
-    if (mode === 'full') {
-      return totalFrames;
-    } else if (mode === 'medium') {
-      // 5.5 minutes = 330 seconds
-      const mediumTarget = Math.round(fps * 330);
-      return Math.min(totalFrames, mediumTarget);
-    } else {
-      // quick mode = 30 seconds
-      const quickTarget = Math.round(fps * 30);
-      return Math.min(totalFrames, quickTarget);
-    }
-  }
-
-  function preloadWindowAhead(centerFrame) {
-    if (!currentPlayingVideo) return;
-
-    const totalFrames = currentPlayingVideo.frameCount;
-    const targetCount = getCacheModeTargetFrames();
-    const mode = cacheModeSelect ? cacheModeSelect.value : 'medium';
-
-    if (mode === 'full' || mode === 'medium') {
-      fetchFramesUpToTarget(targetCount);
-    } else {
-      // Quick Mode: Keep 120 frame window ahead and prune old frames
-      const endFrame = Math.min(totalFrames, centerFrame + 120);
-      const minKeepIndex = Math.max(1, centerFrame - 40);
-      for (const key of frameCache.keys()) {
-        if (key < minKeepIndex || key > endFrame + 60) {
-          frameCache.delete(key);
-        }
-      }
-
-      for (let i = centerFrame; i <= endFrame; i++) {
-        if (!frameCache.has(i) && !activePreloadQueue.has(i)) {
-          activePreloadQueue.add(i);
-          fetchSingleFrame(i, currentPlayingVideo.id).then(() => {
-            activePreloadQueue.delete(i);
-            updateCacheProgressUI();
-          });
-        }
-      }
-    }
-  }
-
-  async function fetchFramesUpToTarget(targetCount) {
-    if (!currentPlayingVideo || isFullOfflineCacheDone) return;
-
-    const totalFrames = Math.min(currentPlayingVideo.frameCount, targetCount);
-    const batchSize = 12;
-
-    for (let i = 1; i <= totalFrames; i += batchSize) {
-      if (!currentPlayingVideo) break;
-      const batchPromises = [];
-      for (let j = i; j < Math.min(totalFrames + 1, i + batchSize); j++) {
-        if (!frameCache.has(j) && !activePreloadQueue.has(j)) {
-          activePreloadQueue.add(j);
-          batchPromises.push(
-            fetchSingleFrame(j, currentPlayingVideo.id).then(() => {
-              activePreloadQueue.delete(j);
-            })
-          );
-        }
-      }
-      if (batchPromises.length > 0) {
-        await Promise.all(batchPromises);
-        updateCacheProgressUI();
-      }
-    }
-  }
-
   function fetchSingleFrame(frameIndex, videoId = currentPlayingVideo?.id) {
     if (!videoId) return Promise.resolve(null);
     if (frameCache.has(frameIndex)) return Promise.resolve(frameCache.get(frameIndex));
@@ -587,6 +641,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
       img.onload = () => {
         frameCache.set(frameIndex, img);
+        if (img.decode) {
+          img.decode().catch(() => {});
+        }
         resolve(img);
       };
       img.onerror = () => {
@@ -595,39 +652,86 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  function processFetchQueue() {
+    while (activeFetchCount < MAX_CONCURRENT_FETCHES && fetchQueue.length > 0) {
+      const frameIndex = fetchQueue.shift();
+      pendingFetchSet.delete(frameIndex);
+
+      if (frameCache.has(frameIndex)) continue;
+
+      activeFetchCount++;
+      fetchSingleFrame(frameIndex)
+        .then(() => {
+          activeFetchCount--;
+          updateCacheProgressUI();
+          processFetchQueue();
+        })
+        .catch(() => {
+          activeFetchCount--;
+          processFetchQueue();
+        });
+    }
+  }
+
+  function preloadSlidingWindow(centerFrame) {
+    if (!currentPlayingVideo) return;
+
+    const now = Date.now();
+    // Throttle check to avoid main thread churn
+    if (centerFrame === lastPreloadCenterFrame && now - lastPreloadTimestamp < 200) {
+      return;
+    }
+    lastPreloadCenterFrame = centerFrame;
+    lastPreloadTimestamp = now;
+
+    const totalFrames = currentPlayingVideo.frameCount;
+    const minKeep = Math.max(1, centerFrame - WINDOW_BEHIND);
+    const maxKeep = Math.min(totalFrames, centerFrame + WINDOW_AHEAD + 40);
+
+    // Evict old frames to prevent GPU memory bloat & stutter
+    for (const key of frameCache.keys()) {
+      if (key < minKeep || key > maxKeep) {
+        const oldImg = frameCache.get(key);
+        if (oldImg) {
+          oldImg.onload = null;
+          oldImg.onerror = null;
+          oldImg.src = '';
+        }
+        frameCache.delete(key);
+      }
+    }
+
+    // Queue upcoming window frames
+    const endFrame = Math.min(totalFrames, centerFrame + WINDOW_AHEAD);
+    for (let i = centerFrame; i <= endFrame; i++) {
+      if (!frameCache.has(i) && !pendingFetchSet.has(i)) {
+        pendingFetchSet.add(i);
+        fetchQueue.push(i);
+      }
+    }
+
+    processFetchQueue();
+  }
+
   function updateCacheProgressUI() {
     if (!currentPlayingVideo) return;
     const totalFrames = currentPlayingVideo.frameCount;
     const cachedCount = frameCache.size;
-    const targetCount = getCacheModeTargetFrames();
-    const mode = cacheModeSelect ? cacheModeSelect.value : 'medium';
-    const percent = Math.min(100, Math.round((cachedCount / targetCount) * 100));
+    const targetBuffer = Math.min(WINDOW_AHEAD, totalFrames);
+    const percent = Math.min(100, Math.round((cachedCount / targetBuffer) * 100));
 
-    cachePercentText.textContent = `${percent}%`;
-    cacheProgressBar.style.width = `${percent}%`;
-    
-    if (cachedCount >= targetCount) {
-      if (mode === 'full' || cachedCount >= totalFrames) {
-        isFullOfflineCacheDone = true;
-        cacheStageText.textContent = `✅ 100% Full Video Cached in Memory (Offline Ready)`;
-        playerCacheBadge.textContent = `🟢 Offline Ready`;
-      } else if (mode === 'medium') {
-        cacheStageText.textContent = `✅ 5-6 Min Buffer Cached in Memory (Ready for Driving)`;
-        playerCacheBadge.textContent = `🟢 5.5m Buffer Ready`;
-      } else {
-        cacheStageText.textContent = `⚡ 30s Quick Buffer Ready`;
-        playerCacheBadge.textContent = `⚡ 30s Ready`;
-      }
+    if (cachePercentText) cachePercentText.textContent = `${percent}%`;
+    if (cacheProgressBar) cacheProgressBar.style.width = `${percent}%`;
+
+    if (cachedCount >= 30 || percent >= 100) {
+      startPlayNowBtn.disabled = false;
+      startPlayNowBtn.innerHTML = '▶️ Play Video (Buffer Ready)';
+      if (cacheStageText) cacheStageText.textContent = `⚡ Sliding Window Buffer Active (${cachedCount} frames in RAM)`;
+      playerCacheBadge.textContent = `🟢 Stream Active`;
       playerCacheBadge.style.backgroundColor = 'var(--accent-green)';
     } else {
-      if (mode === 'medium') {
-        cacheStageText.textContent = `Caching 5.5m buffer: ${cachedCount} / ${targetCount} frames`;
-      } else if (mode === 'full') {
-        cacheStageText.textContent = `Caching full video: ${cachedCount} / ${totalFrames} frames`;
-      } else {
-        cacheStageText.textContent = `Buffered ${cachedCount} / ${targetCount} frames ahead`;
-      }
-      playerCacheBadge.textContent = `Cache: ${percent}%`;
+      if (cacheStageText) cacheStageText.textContent = `Buffering initial frames: ${cachedCount} / 30`;
+      playerCacheBadge.textContent = `Buffering: ${percent}%`;
       playerCacheBadge.style.backgroundColor = '';
     }
 
@@ -638,64 +742,43 @@ document.addEventListener('DOMContentLoaded', () => {
     const duration = teslaAudio.duration || currentPlayingVideo.duration || 1;
     const bufferPercent = Math.min(100, Math.round((bufferedSec / duration) * 100));
     scrubberBuffer.style.width = `${bufferPercent}%`;
-
-    // Enable play button as soon as initial 30 frames are loaded
-    if (cachedCount >= Math.min(30, totalFrames)) {
-      startPlayNowBtn.disabled = false;
-      if (cachedCount >= targetCount || percent >= 100) {
-        startPlayNowBtn.innerHTML = mode === 'medium' 
-          ? '▶️ Play Video (5.5 Min Buffer Ready)'
-          : mode === 'full' ? '▶️ Play Video (100% Offline Ready)' : '▶️ Play Video';
-      } else {
-        startPlayNowBtn.innerHTML = '▶️ Start Playing (Buffering...)';
-      }
-    }
   }
 
   async function startFramePreCachePipeline(video) {
-    frameCache.clear();
-    activePreloadQueue.clear();
-    isFullOfflineCacheDone = false;
+    clearFrameCacheMemory();
 
-    // Pre-cache full audio blob so audio works 100% offline
+    // Cache audio in browser storage/blob if possible
     cacheFullAudio(video.audioUrl);
 
-    // Load initial 40 frames immediately
-    const firstBatch = [];
-    for (let i = 1; i <= Math.min(40, video.frameCount); i++) {
-      firstBatch.push(fetchSingleFrame(i, video.id));
+    // Load initial 30 frames immediately
+    const initialPromises = [];
+    for (let i = 1; i <= Math.min(30, video.frameCount); i++) {
+      initialPromises.push(fetchSingleFrame(i, video.id));
     }
 
-    await Promise.all(firstBatch);
+    await Promise.all(initialPromises);
 
     if (frameCache.has(1)) {
       renderCanvasFrame(1);
     }
 
     updateCacheProgressUI();
-    preloadWindowAhead(1);
-  }
-
-  if (cacheModeSelect) {
-    cacheModeSelect.addEventListener('change', () => {
-      if (currentPlayingVideo) {
-        preloadWindowAhead(lastDrawnFrameIndex || 1);
-      }
-    });
+    preloadSlidingWindow(1);
   }
 
   // Handle "Start Playing" button on Pre-Cache screen
   startPlayNowBtn.addEventListener('click', () => {
     preCacheScreen.classList.add('hidden');
-    canvasPlayOverlay.classList.remove('hidden');
     if (frameCache.has(1)) {
       renderCanvasFrame(1);
     }
+    togglePlayPause();
   });
 
   // Canvas Render Frame Function (with Fallback to last drawn frame)
   function renderCanvasFrame(targetFrame) {
     if (!currentPlayingVideo) return;
+    if (targetFrame === lastDrawnFrameIndex) return; // Skip redundant draw operations!
 
     let img = frameCache.get(targetFrame);
 
@@ -737,7 +820,7 @@ document.addEventListener('DOMContentLoaded', () => {
       updatePlayerUIControls(currentTime, currentFrame);
 
       // Pre-fetch upcoming sliding window
-      preloadWindowAhead(currentFrame);
+      preloadSlidingWindow(currentFrame);
 
       animFrameId = requestAnimationFrame(loop);
     }
@@ -759,16 +842,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Audio Event Listeners for Automatic Canvas Loop Sync
   teslaAudio.addEventListener('play', () => {
-    canvasPlayOverlay.classList.add('hidden');
     playIcon.classList.add('hidden');
     pauseIcon.classList.remove('hidden');
+    if (touchPlayIcon) touchPlayIcon.classList.add('hidden');
+    if (touchPauseIcon) touchPauseIcon.classList.remove('hidden');
+    showControls();
     startPlaybackLoop();
   });
 
   teslaAudio.addEventListener('pause', () => {
-    canvasPlayOverlay.classList.remove('hidden');
     playIcon.classList.remove('hidden');
     pauseIcon.classList.add('hidden');
+    if (touchPlayIcon) touchPlayIcon.classList.remove('hidden');
+    if (touchPauseIcon) touchPauseIcon.classList.add('hidden');
+    showControls();
     if (animFrameId) cancelAnimationFrame(animFrameId);
   });
 
@@ -778,7 +865,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const fps = currentPlayingVideo.fps || 24;
     const targetFrame = Math.min(currentPlayingVideo.frameCount, Math.floor(currentTime * fps) + 1);
 
-    preloadWindowAhead(targetFrame);
+    preloadSlidingWindow(targetFrame);
     renderCanvasFrame(targetFrame);
     updatePlayerUIControls(currentTime, targetFrame);
   });
@@ -793,7 +880,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   playPauseBtn.addEventListener('click', togglePlayPause);
-  canvasPlayOverlay.addEventListener('click', togglePlayPause);
+  if (touchPlayPauseBtn) touchPlayPauseBtn.addEventListener('click', togglePlayPause);
 
   // Scrubber Seeking
   canvasScrubber.addEventListener('input', () => {
@@ -811,7 +898,7 @@ document.addEventListener('DOMContentLoaded', () => {
     updatePlayerUIControls(targetTime, targetFrame);
   });
 
-  // Rewind & Forward 5 seconds
+  // Rewind & Forward buttons (5s and 10s)
   rewindBtn.addEventListener('click', () => {
     teslaAudio.currentTime = Math.max(0, teslaAudio.currentTime - 5);
   });
@@ -819,6 +906,18 @@ document.addEventListener('DOMContentLoaded', () => {
   forwardBtn.addEventListener('click', () => {
     teslaAudio.currentTime = Math.min(teslaAudio.duration || 0, teslaAudio.currentTime + 5);
   });
+
+  if (touchRewindBtn) {
+    touchRewindBtn.addEventListener('click', () => {
+      teslaAudio.currentTime = Math.max(0, teslaAudio.currentTime - 10);
+    });
+  }
+
+  if (touchForwardBtn) {
+    touchForwardBtn.addEventListener('click', () => {
+      teslaAudio.currentTime = Math.min(teslaAudio.duration || 0, teslaAudio.currentTime + 10);
+    });
+  }
 
   // Speed Selector
   speedSelect.addEventListener('change', () => {
@@ -846,22 +945,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // Fullscreen Canvas Toggle
-  fullscreenBtn.addEventListener('click', () => {
-    if (!document.fullscreenElement) {
-      if (canvasWrapper.requestFullscreen) {
-        canvasWrapper.requestFullscreen();
-      } else if (canvasWrapper.webkitRequestFullscreen) {
-        canvasWrapper.webkitRequestFullscreen();
-      }
-    } else {
-      if (document.exitFullscreen) {
-        document.exitFullscreen();
-      }
-    }
-  });
-
-  // Keyboard Shortcuts (Space to play/pause, Left/Right arrows to seek)
+  // Keyboard Shortcuts (Space to play/pause, Left/Right arrows to seek, Esc to exit fullscreen or close player)
   document.addEventListener('keydown', (e) => {
     if (playerModal.classList.contains('hidden')) return;
     if (e.code === 'Space') {
@@ -874,7 +958,12 @@ document.addEventListener('DOMContentLoaded', () => {
       e.preventDefault();
       teslaAudio.currentTime = Math.min(teslaAudio.duration || 0, teslaAudio.currentTime + 5);
     } else if (e.code === 'Escape') {
-      closeCanvasPlayer();
+      const isFS = document.fullscreenElement || document.webkitFullscreenElement || canvasWrapper.classList.contains('is-fullscreen');
+      if (isFS) {
+        exitFullscreen();
+      } else {
+        closeCanvasPlayer();
+      }
     }
   });
 
