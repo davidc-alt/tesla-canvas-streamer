@@ -287,8 +287,8 @@
             <div id="preCacheScreen" class="pre-cache-screen">
               <div class="pre-cache-box">
                 <div class="pre-cache-icon">⚡</div>
-                <h3>Buffering Video Stream...</h3>
-                <p>Initial frames pre-loading into browser buffer for smooth, stutter-free playback on your Tesla canvas while driving.</p>
+                <h3 id="cacheModalHeading">Buffering Video Stream...</h3>
+                <p id="cacheModalSubtext">Initial frames pre-loading into browser buffer for smooth playback while driving.</p>
 
                 <div class="cache-progress-wrapper">
                   <div class="cache-progress-info">
@@ -302,16 +302,22 @@
 
                 <div class="cache-options">
                   <div class="mode-selector">
-                    <label>Pre-Cache Mode:</label>
+                    <label>Playback Mode:</label>
                     <select id="cacheModeSelect">
-                      <option value="medium" selected>⚡ Smart Sliding Window (Recommended for Driving)</option>
-                      <option value="full">🔒 High Buffer Priority</option>
+                      <option value="medium" selected>⚡ Smart Streaming Buffer (Recommended)</option>
+                      <option value="full-offline">🔒 Download 100% Offline (Zero Cellular Internet Required)</option>
                       <option value="quick">🚀 Quick Start (Instant Play)</option>
                     </select>
                   </div>
-                  <button class="btn btn-primary" id="startPlayNowBtn" disabled>
-                    ▶️ Start Playing (Buffering...)
-                  </button>
+
+                  <div style="display: flex; gap: 10px; width: 100%;">
+                    <button class="btn btn-secondary" id="downloadOfflineBtn" style="flex: 1;">
+                      📥 Download Full Video Offline
+                    </button>
+                    <button class="btn btn-primary" id="startPlayNowBtn" disabled style="flex: 1.2;">
+                      ▶️ Start Playing
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>

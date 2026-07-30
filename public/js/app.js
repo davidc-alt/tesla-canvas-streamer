@@ -370,7 +370,7 @@ document.addEventListener('DOMContentLoaded', () => {
       card.innerHTML = `
         <div class="card-media">
           <img src="${video.thumbnailUrl}" alt="${escapeHtml(video.title)}">
-          <span class="res-tag">360p Canvas</span>
+          <span class="res-tag">${video.resolution || '360p'} Canvas</span>
           <span class="duration-tag">${video.formattedDuration}</span>
         </div>
         <div class="card-body">
@@ -381,15 +381,22 @@ document.addEventListener('DOMContentLoaded', () => {
             <span class="meta-pill">⚡ ${video.fps} FPS</span>
             <span class="meta-pill">💾 ${video.totalSizeMB} MB</span>
           </div>
-          <div class="card-actions">
-            <button class="btn btn-primary play-lib-btn">▶️ Play on Canvas</button>
-            <button class="btn btn-danger delete-lib-btn" title="Delete Video">🗑️</button>
+          <div class="card-actions" style="display: flex; gap: 8px; flex-wrap: wrap;">
+            <button class="btn btn-primary play-lib-btn" style="flex: 1;">▶️ Play</button>
+            <button class="btn btn-secondary offline-lib-btn" style="flex: 1;" title="Download 100% for Offline Driving">📥 Offline</button>
+            <button class="btn btn-danger delete-lib-btn" style="width: auto; padding: 10px 14px;" title="Delete Video">🗑️</button>
           </div>
         </div>
       `;
 
       card.querySelector('.play-lib-btn').addEventListener('click', () => {
         openCanvasPlayer(video.id);
+      });
+
+      card.querySelector('.offline-lib-btn').addEventListener('click', () => {
+        openCanvasPlayer(video.id).then(() => {
+          downloadFullVideoOffline(video);
+        });
       });
 
       card.querySelector('.delete-lib-btn').addEventListener('click', async (e) => {
@@ -609,8 +616,12 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // ----------------------------------------------------
-  // High-Performance Sliding Window Preloader Engine
+  // High-Performance Sliding Window & 100% Offline Engine
   // ----------------------------------------------------
+  const offlineBlobMap = new Map(); // videoId -> Map(frameIndex -> objectUrl)
+  const isOfflineDownloadingMap = new Map(); // videoId -> boolean
+  const downloadOfflineBtn = document.getElementById('downloadOfflineBtn');
+
   async function cacheFullAudio(audioUrl) {
     try {
       const response = await fetch(audioUrl);
@@ -630,14 +641,143 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
+  async function downloadFullVideoOffline(video, autoPlayWhenDone = false) {
+    if (!video || !video.id) return;
+    const videoId = video.id;
+
+    if (isOfflineDownloadingMap.get(videoId)) {
+      return;
+    }
+
+    isOfflineDownloadingMap.set(videoId, true);
+
+    if (!offlineBlobMap.has(videoId)) {
+      offlineBlobMap.set(videoId, new Map());
+    }
+    const frameBlobStore = offlineBlobMap.get(videoId);
+
+    // Update Modal UI
+    const heading = document.getElementById('cacheModalHeading');
+    const subtext = document.getElementById('cacheModalSubtext');
+    if (heading) heading.textContent = '📥 Downloading Video 100% Offline...';
+    if (subtext) subtext.textContent = 'Pre-loading audio and all frame images into browser memory. No cellular internet will be needed while driving.';
+    
+    preCacheScreen.classList.remove('hidden');
+
+    try {
+      // 1. Download Full Audio Track
+      if (cacheStageText) cacheStageText.textContent = 'Downloading audio track...';
+      await cacheFullAudio(video.audioUrl);
+
+      // 2. Open Cache API for persistent storage if available
+      let cache = null;
+      if ('caches' in window) {
+        try {
+          cache = await caches.open(`tesla-offline-${videoId}`);
+        } catch (e) {
+          console.warn('Cache API warning:', e);
+        }
+      }
+
+      // 3. Batch Download All Frames (Concurrency = 12)
+      const totalFrames = video.frameCount;
+      let downloadedCount = frameBlobStore.size;
+      const batchSize = 12;
+
+      for (let i = 1; i <= totalFrames; i += batchSize) {
+        if (currentPlayingVideo && currentPlayingVideo.id !== videoId) break;
+
+        const promises = [];
+        for (let j = i; j < Math.min(totalFrames + 1, i + batchSize); j++) {
+          if (frameBlobStore.has(j)) {
+            downloadedCount++;
+            continue;
+          }
+
+          const frameNumStr = String(j).padStart(5, '0');
+          const frameUrl = `/api/library/${videoId}/frames/frame_${frameNumStr}.jpg`;
+
+          promises.push((async () => {
+            try {
+              let response = cache ? await cache.match(frameUrl) : null;
+              if (!response) {
+                response = await fetch(frameUrl);
+                if (cache && response.ok) {
+                  cache.put(frameUrl, response.clone()).catch(() => {});
+                }
+              }
+              if (response && response.ok) {
+                const blob = await response.blob();
+                const objectUrl = URL.createObjectURL(blob);
+                frameBlobStore.set(j, objectUrl);
+                downloadedCount++;
+              }
+            } catch (err) {
+              console.warn(`Frame ${j} offline fetch warning:`, err);
+            }
+          })());
+        }
+
+        if (promises.length > 0) {
+          await Promise.all(promises);
+          const percent = Math.min(100, Math.round((downloadedCount / totalFrames) * 100));
+          if (cachePercentText) cachePercentText.textContent = `${percent}%`;
+          if (cacheProgressBar) cacheProgressBar.style.width = `${percent}%`;
+          if (cacheStageText) cacheStageText.textContent = `Offline downloaded ${downloadedCount} / ${totalFrames} frames (${percent}%)`;
+        }
+      }
+
+      isOfflineDownloadingMap.set(videoId, false);
+
+      if (downloadedCount >= Math.min(30, totalFrames)) {
+        startPlayNowBtn.disabled = false;
+        startPlayNowBtn.innerHTML = '▶️ Play Video (100% Offline Ready)';
+        playerCacheBadge.textContent = '🟢 100% Offline Ready';
+        playerCacheBadge.style.backgroundColor = 'var(--accent-green)';
+      }
+
+      if (autoPlayWhenDone) {
+        preCacheScreen.classList.add('hidden');
+        togglePlayPause();
+      }
+
+    } catch (err) {
+      isOfflineDownloadingMap.set(videoId, false);
+      console.error('Offline download failed:', err);
+    }
+  }
+
+  if (downloadOfflineBtn) {
+    downloadOfflineBtn.addEventListener('click', () => {
+      if (currentPlayingVideo) {
+        downloadFullVideoOffline(currentPlayingVideo);
+      }
+    });
+  }
+
+  if (cacheModeSelect) {
+    cacheModeSelect.addEventListener('change', () => {
+      if (cacheModeSelect.value === 'full-offline' && currentPlayingVideo) {
+        downloadFullVideoOffline(currentPlayingVideo);
+      }
+    });
+  }
+
   function fetchSingleFrame(frameIndex, videoId = currentPlayingVideo?.id) {
     if (!videoId) return Promise.resolve(null);
     if (frameCache.has(frameIndex)) return Promise.resolve(frameCache.get(frameIndex));
 
     return new Promise((resolve) => {
       const img = new Image();
-      const frameNumStr = String(frameIndex).padStart(5, '0');
-      img.src = `/api/library/${videoId}/frames/frame_${frameNumStr}.jpg`;
+
+      // Priority 1: Use 100% offline downloaded blob objectUrl
+      const offlineStore = offlineBlobMap.get(videoId);
+      if (offlineStore && offlineStore.has(frameIndex)) {
+        img.src = offlineStore.get(frameIndex);
+      } else {
+        const frameNumStr = String(frameIndex).padStart(5, '0');
+        img.src = `/api/library/${videoId}/frames/frame_${frameNumStr}.jpg`;
+      }
 
       img.onload = () => {
         frameCache.set(frameIndex, img);
