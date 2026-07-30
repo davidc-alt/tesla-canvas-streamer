@@ -474,30 +474,68 @@ document.addEventListener('DOMContentLoaded', () => {
   playerOverlayClose.addEventListener('click', closeCanvasPlayer);
 
   // ----------------------------------------------------
-  // High-Performance Non-Blocking Preloader & Offline Caching Engine
+  // Ultra-Smooth Zero-Stutter Frame Decoder Engine (ImageBitmap + Concurrency Queue)
   // ----------------------------------------------------
-  const PRELOAD_WINDOW = 120; // Keep 120 frames buffered ahead in quick mode
-  let activePreloadQueue = new Set();
-  let isFullOfflineCacheDone = false;
-  let cachedAudioObjectUrl = null;
+  const MAX_CONCURRENT_FETCHES = 6;
+  let currentActiveFetches = 0;
+  const fetchQueue = [];
 
-  async function cacheFullAudio(audioUrl) {
-    try {
-      const response = await fetch(audioUrl);
-      if (!response.ok) return;
-      const blob = await response.blob();
-      if (cachedAudioObjectUrl) {
-        URL.revokeObjectURL(cachedAudioObjectUrl);
-      }
-      cachedAudioObjectUrl = URL.createObjectURL(blob);
-      const currentTime = teslaAudio.currentTime || 0;
-      const isPlaying = !teslaAudio.paused;
-      teslaAudio.src = cachedAudioObjectUrl;
-      teslaAudio.currentTime = currentTime;
-      if (isPlaying) teslaAudio.play().catch(() => {});
-    } catch (e) {
-      console.warn('Audio offline pre-cache fallback:', e);
+  function processFetchQueue() {
+    while (currentActiveFetches < MAX_CONCURRENT_FETCHES && fetchQueue.length > 0) {
+      const task = fetchQueue.shift();
+      currentActiveFetches++;
+      task().finally(() => {
+        currentActiveFetches--;
+        processFetchQueue();
+      });
     }
+  }
+
+  function clearFrameCache() {
+    for (const [key, value] of frameCache.entries()) {
+      if (value && typeof value.close === 'function') {
+        try { value.close(); } catch (e) {}
+      }
+    }
+    frameCache.clear();
+    fetchQueue.length = 0;
+  }
+
+  function fetchSingleFrame(frameIndex, videoId = currentPlayingVideo?.id) {
+    if (!videoId) return Promise.resolve(null);
+    if (frameCache.has(frameIndex)) return Promise.resolve(frameCache.get(frameIndex));
+
+    return new Promise((resolve) => {
+      fetchQueue.push(async () => {
+        try {
+          const frameNumStr = String(frameIndex).padStart(5, '0');
+          const response = await fetch(`/api/library/${videoId}/frames/frame_${frameNumStr}.jpg`);
+          if (!response.ok) {
+            resolve(null);
+            return;
+          }
+          const blob = await response.blob();
+          let bitmap;
+          if (window.createImageBitmap) {
+            bitmap = await createImageBitmap(blob);
+          } else {
+            bitmap = await new Promise((res) => {
+              const img = new Image();
+              img.src = URL.createObjectURL(blob);
+              img.onload = () => res(img);
+              img.onerror = () => res(null);
+            });
+          }
+          if (bitmap) {
+            frameCache.set(frameIndex, bitmap);
+          }
+          resolve(bitmap);
+        } catch (e) {
+          resolve(null);
+        }
+      });
+      processFetchQueue();
+    });
   }
 
   function getCacheModeTargetFrames() {
@@ -576,25 +614,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  function fetchSingleFrame(frameIndex, videoId = currentPlayingVideo?.id) {
-    if (!videoId) return Promise.resolve(null);
-    if (frameCache.has(frameIndex)) return Promise.resolve(frameCache.get(frameIndex));
-
-    return new Promise((resolve) => {
-      const img = new Image();
-      const frameNumStr = String(frameIndex).padStart(5, '0');
-      img.src = `/api/library/${videoId}/frames/frame_${frameNumStr}.jpg`;
-
-      img.onload = () => {
-        frameCache.set(frameIndex, img);
-        resolve(img);
-      };
-      img.onerror = () => {
-        resolve(null);
-      };
-    });
-  }
-
   function updateCacheProgressUI() {
     if (!currentPlayingVideo) return;
     const totalFrames = currentPlayingVideo.frameCount;
@@ -653,7 +672,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   async function startFramePreCachePipeline(video) {
-    frameCache.clear();
+    clearFrameCache();
     activePreloadQueue.clear();
     isFullOfflineCacheDone = false;
 
@@ -663,7 +682,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Load initial 40 frames immediately
     const firstBatch = [];
     for (let i = 1; i <= Math.min(40, video.frameCount); i++) {
-      firstBatch.push(fetchSingleFrame(i, video.id));
+      firstBatch.push(fetchSingleFrame(i));
     }
 
     await Promise.all(firstBatch);
@@ -700,19 +719,21 @@ document.addEventListener('DOMContentLoaded', () => {
     let img = frameCache.get(targetFrame);
 
     // Fallback: If exact frame is loading, search backwards for closest loaded frame
-    if (!img || !img.complete) {
+    if (!img) {
       for (let offset = 1; offset <= 10; offset++) {
         const prevImg = frameCache.get(targetFrame - offset);
-        if (prevImg && prevImg.complete) {
+        if (prevImg) {
           img = prevImg;
           break;
         }
       }
     }
 
-    if (img && img.complete) {
-      canvasCtx.drawImage(img, 0, 0, teslaCanvas.width, teslaCanvas.height);
-      lastDrawnFrameIndex = targetFrame;
+    if (img) {
+      try {
+        canvasCtx.drawImage(img, 0, 0, teslaCanvas.width, teslaCanvas.height);
+        lastDrawnFrameIndex = targetFrame;
+      } catch (e) {}
     }
   }
 
